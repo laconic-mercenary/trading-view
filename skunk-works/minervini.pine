@@ -1,0 +1,156 @@
+//$PRICE > MA150 and $PRICE > MA200
+//MA150 > MA200
+//MA50 > MA150 > MA200
+//$PRICE > (52weekLow($PRICE) * 1.25)
+//$PRICE > (52weekLow($PRICE) * 0.75)
+//uptrend(MA200, 30days)
+//$PRICE > MA50
+
+//$RS > 70
+//uptrend($RS, 6weeks)
+
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © mlcs05
+
+// CONTRIBUTORS
+// @QuantNomad - logging portion
+
+//@version=5
+strategy(title="minervini", overlay=true, currency=currency.USD, initial_capital=10000, calc_on_every_tick=true, calc_on_order_fills=true)
+
+// ERRORS
+var string[]    errs                = array.new_string(size = 0)
+ 
+//
+// FUNCS
+
+err(msg) =>
+    label.new(x=bar_index,y=close,yloc=yloc.abovebar,text=msg,color=color.red,style=label.style_label_up,textcolor=color.white)
+    true
+
+get_name(ticker) =>
+    array.get(str.split(ticker, ":"), 1)
+
+sig_price_above_ma(ma50, ma150, ma200, opn, cls) => 
+    ((opn > ma50) and (cls > ma50) and (opn > ma150) and (opn > ma200) and (cls > ma200) and (cls > ma150))
+
+sig_ma_uptrend(ma50, ma150, ma200) =>
+    ((ma50 > ma150) and (ma150 > ma200))
+
+sig_price_in_52wk_range(hi52week, hi52multiplier, low52week, low52multiplier, opn, cls) => 
+    ((opn > (low52week * low52multiplier)) and (cls > (low52week * low52multiplier)) and (opn > (hi52week * hi52multiplier)) and (cls > (hi52week * hi52multiplier)))
+
+sig_ma200_uptrend_30days(ma200) => 
+    ((ta.change(ma200, 30) > 0.0) and (ta.change(ma200, 15) > 0.0))
+
+sig_bb_contracting(bbwavg, bars) =>
+    chunk=bars/3
+    ((bbwavg[bars] > bbwavg[bars - chunk]) and (bbwavg[bars - chunk] > bbwavg[bars - chunk*2]) and (bbwavg[bars - chunk*2] > bbwavg[0]))
+
+optimum(ma50, ma150, ma200, hi52week, hi52multiplier, low52week, low52multiplier, bbwavg, bars, opn, cls) => 
+    s1 = sig_ma200_uptrend_30days(ma200)
+    s2 = sig_ma_uptrend(ma50, ma150, ma200)
+    s3 = sig_price_above_ma(ma50, ma150, ma200, opn, cls)
+    s4 = sig_price_in_52wk_range(hi52week, hi52multiplier, low52week, low52multiplier, opn, cls)
+    s5 = sig_bb_contracting(bbwavg * 1000, bars)
+    (s5 and s4 and s3 and s2 and s1)
+    
+in_time_window(start, finish) =>
+    (time >= start and time <= finish)
+
+check_alerts(ticker, optimum_now, optimum_prev) =>
+    buy = (optimum_now and not optimum_prev)
+    if (buy)
+        alert(message = "(buy) minervini: " + str.tostring(ticker), freq = alert.freq_once_per_bar_close)
+    buy
+
+screener_function() =>
+    [ta.ema(close, 3), ta.sma(close, 50), ta.sma(close, 150), ta.sma(close, 200), ta.highest(high, 251), ta.lowest(low, 251), ta.ema(ta.bbw(close, 20, 3), 20), open, close, low, high, bar_index]
+
+mark_order(order_type, ticker, ticker_close, ticker_index, price = 0.0)=>
+    suffix = price > 0.0 ? str.tostring(price) + ":" + str.tostring(ticker) : ""
+    if (order_type == "buy")
+        ptext = "#" + suffix
+        label.new(x=ticker_index,y=ticker_close,yloc=yloc.abovebar,text=ptext,color=color.blue,style=label.style_label_up,textcolor=color.white,size=size.small)
+    else
+        if (order_type == "stop")
+            ptext = "!" + suffix
+            label.new(x=ticker_index,y=ticker_close,yloc=yloc.abovebar,text=ptext,color=color.red,style=label.style_label_up,textcolor=color.white,size=size.small)
+        else 
+            if (order_type == "profit")
+                ptext = "$" + suffix
+                label.new(x=ticker_index,y=ticker_close,yloc=yloc.abovebar,text=ptext,color=color.green,style=label.style_label_up,textcolor=color.white,size=size.small)
+    true
+
+place_orders(ticker, qty, stop_percent, profit_percent, ticker_close, ticker_index, stack) => 
+    ticker_name = get_name(ticker)
+    price_stop_loss = (ticker_close * stop_percent)
+    price_profit = (ticker_close * profit_percent)
+    if (array.size(stack) == 0)
+        array.push(stack, price_profit)
+        array.push(stack, price_stop_loss)
+        mark_order("buy", ticker_name, ticker_close, ticker_index, ticker_close)
+    if (strategy.position_size == 0)
+        buy_id = "buy-" + ticker_name
+        sell_id = "sell-" + ticker_name
+        profit_id = "profit-" + ticker_name
+        loss_id = "loss-" + ticker_name
+        strategy.entry(buy_id, strategy.long, qty=qty, alert_message=buy_id)
+        strategy.exit(sell_id, from_entry=buy_id, stop=price_stop_loss, limit=price_profit,alert_profit=profit_id,alert_loss=loss_id)
+
+check_orders(stack, ticker, ticker_close, ticker_low, ticker_high, ticker_index)=>
+    if (array.size(stack) == 2)
+        ticker_name = get_name(ticker)
+        price_stop_loss = array.get(stack, 1)
+        price_profit = array.get(stack, 0)
+        stop_triggered = (ticker_low < price_stop_loss and price_stop_loss < ticker_high)
+        profit_triggered = (ticker_low < price_profit and price_profit < ticker_high)
+        if (stop_triggered and profit_triggered)
+            err("both stop and profit triggered")
+        else
+            if (stop_triggered)
+                array.pop(stack)
+                array.pop(stack)
+                mark_order("stop", ticker_name, ticker_close, ticker_index, price_stop_loss)
+            else
+                if (profit_triggered)
+                    array.pop(stack)
+                    array.pop(stack)
+                    mark_order("profit", ticker_name, ticker_close, ticker_index, price_profit)
+    true
+        
+run_screener_for(ticker, timeframe, dateStart, dateEnd, qty, ticker_52h_mult, ticker_52l_mult, ticker_bbbars, stop_percent, profit_percent, stack) => 
+    [ emaPrice, sec_ma50, sec_ma150, sec_ma200, sec_hi52, sec_low52, sec_bbwavg, sec_open, sec_close, sec_low, sec_high, sec_bar_index ] = request.security(ticker, timeframe, screener_function())
+    optimum_now = optimum(sec_ma50, sec_ma150, sec_ma200, sec_hi52, ticker_52h_mult, sec_low52, ticker_52l_mult, sec_bbwavg, ticker_bbbars, sec_open, sec_close)
+    optimum_prev = optimum(sec_ma50[1], sec_ma150[1], sec_ma200[1], sec_hi52[1], ticker_52h_mult, sec_low52[1], ticker_52l_mult, sec_bbwavg[1], ticker_bbbars, sec_open[1], sec_close[1])
+    if (in_time_window(dateStart, dateEnd))
+        if (check_alerts(ticker, optimum_now, optimum_prev))
+            place_orders(ticker, qty, stop_percent, profit_percent, sec_close, bar_index, stack)
+        else
+            check_orders(stack, ticker, sec_close, sec_low, sec_high, bar_index)
+    [ emaPrice, optimum_now and not optimum_prev ]
+
+//
+// TIMEFRAME
+START     = timestamp(2018, 01, 01, 01, 01)            // backtest start  window
+FINISH    = timestamp(2023, 06, 01, 01, 01)            // backtest finish window
+
+//
+// INPUTS
+ENTRY_QUANTITY = input.int(defval=1, title="ENTRY - Quantity", minval=1, maxval=99999, step=1)
+
+//
+// MAIN
+
+// USE syminfo.tickerid for current chart
+
+var float[] STACK = array.new_float(size = 0)
+[ price1, is_optimum1 ] = run_screener_for(syminfo.tickerid, timeframe.period, START, FINISH, ENTRY_QUANTITY, 0.85, 1.25, 50, 0.90, 1.20, STACK)
+
+//var float[] TKR1 = array.new_float(size = 0)
+//[ price1, is_optimum1 ] = run_screener_for("NASDAQ:AAPL", timeframe.period, START, FINISH, ENTRY_QUANTITY, 0.85, 1.25, 50, 0.90, 1.20, TKR1)
+//plot(price1, color=color.aqua)
+
+//var float[] TKR2 = array.new_float(size = 0)
+//[ price2, is_optimum2 ] = run_screener_for("NASDAQ:TSLA", timeframe.period, START, FINISH, ENTRY_QUANTITY, 0.85, 1.25, 50, 0.90, 1.20, TKR2)
+//plot(price2, color=color.blue)
