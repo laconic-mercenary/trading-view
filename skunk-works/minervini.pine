@@ -44,8 +44,8 @@ sig_ma200_uptrend_30days(ma200) =>
     ((ta.change(ma200, 30) > 0.0) and (ta.change(ma200, 15) > 0.0))
 
 sig_bb_contracting(bbwavg, bars) =>
-    chunk=bars/3
-    ((bbwavg[bars] > bbwavg[bars - chunk]) and (bbwavg[bars - chunk] > bbwavg[bars - chunk*2]) and (bbwavg[bars - chunk*2] > bbwavg[0]))
+    chunk=bars/4
+    ((bbwavg[bars] > bbwavg[bars - chunk]) and (bbwavg[bars - chunk] > bbwavg[bars - chunk*2]) and (bbwavg[bars - chunk*2] > bbwavg[bars - chunk*3]) and (bbwavg[bars - chunk*3] > bbwavg[0]))
 
 optimum(ma50, ma150, ma200, hi52week, hi52multiplier, low52week, low52multiplier, bbwavg, bars, opn, cls) => 
     s1 = sig_ma200_uptrend_30days(ma200)
@@ -164,9 +164,12 @@ plot(sec_hi52 * HI_52_WEEK_RANGE, title="52WK-Range-High", color=is_optimum? col
 plot(sec_low52 * LO_52_WEEK_RANGE, title="52WK-Range-Low", color=is_optimum? color.white : color.red, linewidth=1, style=plot.style_cross)
 
 [bb_low, bb_cent, bb_high] = ta.bb(sec_close, 30, 3)
-
 plot(bb_low, title="Bol-Bands", color=is_optimum? color.white : color.orange, linewidth=1, style=plot.style_cross)
 plot(bb_high, title="Bol-Bands", color=is_optimum? color.white : color.orange, linewidth=1, style=plot.style_cross)
+
+sec_profit_plot = plot(sec_ema * ENTRY_PROFIT_PERCENT, title="Entry-Profit", color=color.black, linewidth=1)
+sec_stop_plot = plot(sec_ema * ENTRY_STOP_PERCENT, title="Entry-Stop", color=color.black, linewidth=1)
+fill(plot1=sec_profit_plot, plot2=sec_stop_plot, color=color.lime, transp=90, title="Entry-Area")
 //plot(sec_bbwavg * 1000, title="Bol-Band-Width-Avg", color=is_optimum? color.white : color.teal, linewidth=1)
 
 //var float[] TKR1 = array.new_float(size = 0)
