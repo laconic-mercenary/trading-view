@@ -47,12 +47,29 @@ sig_bb_contracting(bbwavg, bars) =>
     chunk=bars/4
     ((bbwavg[bars] > bbwavg[bars - chunk]) and (bbwavg[bars - chunk] > bbwavg[bars - chunk*2]) and (bbwavg[bars - chunk*2] > bbwavg[bars - chunk*3]) and (bbwavg[bars - chunk*3] > bbwavg[0]))
 
-optimum(ma50, ma150, ma200, hi52week, hi52multiplier, low52week, low52multiplier, bbwavg, bars, opn, cls) => 
+signals(ma50, ma150, ma200, hi52week, hi52multiplier, low52week, low52multiplier, bbwavg, bars, opn, cls) => 
     s1 = sig_ma200_uptrend_30days(ma200)
     s2 = sig_ma_uptrend(ma50, ma150, ma200)
     s3 = sig_price_above_ma(ma50, ma150, ma200, opn, cls)
     s4 = sig_price_in_52wk_range(hi52week, hi52multiplier, low52week, low52multiplier, opn, cls)
     s5 = sig_bb_contracting(bbwavg * 1000, bars)
+    [s5, s4, s3, s2, s1]
+
+signal_count(s1, s2, s3, s4, s5)=>
+    int ct = 0
+    if s1
+        ct:=ct+1
+    if s2
+        ct:=ct+1
+    if s3 
+        ct:=ct+1
+    if s4
+        ct:=ct+1
+    if s5
+        ct:=ct+1
+    ct
+
+optimum(s1, s2, s3, s4, s5)=>
     (s5 and s4 and s3 and s2 and s1)
     
 in_time_window(start, finish) =>
@@ -122,14 +139,16 @@ check_orders(stack, ticker, ticker_close, ticker_low, ticker_high, ticker_index)
         
 run_screener_for(ticker, timeframe, dateStart, dateEnd, qty, ticker_52h_mult, ticker_52l_mult, ticker_bbbars, stop_percent, profit_percent, stack) => 
     [ emaPrice, sec_ma50, sec_ma150, sec_ma200, sec_hi52, sec_low52, sec_bbwavg, sec_open, sec_close, sec_low, sec_high, sec_bar_index ] = request.security(ticker, timeframe, screener_function())
-    optimum_now = optimum(sec_ma50, sec_ma150, sec_ma200, sec_hi52, ticker_52h_mult, sec_low52, ticker_52l_mult, sec_bbwavg, ticker_bbbars, sec_open, sec_close)
-    optimum_prev = optimum(sec_ma50[1], sec_ma150[1], sec_ma200[1], sec_hi52[1], ticker_52h_mult, sec_low52[1], ticker_52l_mult, sec_bbwavg[1], ticker_bbbars, sec_open[1], sec_close[1])
+    [sig1, sig2, sig3, sig4, sig5] = signals(sec_ma50, sec_ma150, sec_ma200, sec_hi52, ticker_52h_mult, sec_low52, ticker_52l_mult, sec_bbwavg, ticker_bbbars, sec_open, sec_close)
+    [sig1_prev, sig2_prev, sig3_prev, sig4_prev, sig5_prev] = signals(sec_ma50[1], sec_ma150[1], sec_ma200[1], sec_hi52[1], ticker_52h_mult, sec_low52[1], ticker_52l_mult, sec_bbwavg[1], ticker_bbbars, sec_open[1], sec_close[1])
+    optimum_now = optimum(sig1, sig2, sig3, sig4, sig5)
+    optimum_prev = optimum(sig1_prev, sig2_prev, sig3_prev, sig4_prev, sig5_prev)
     if (in_time_window(dateStart, dateEnd))
         if (check_alerts(ticker, optimum_now, optimum_prev))
             place_orders(ticker, qty, stop_percent, profit_percent, sec_close, bar_index, stack)
         else
             check_orders(stack, ticker, sec_close, sec_low, sec_high, bar_index)
-    [ optimum_now and not optimum_prev, emaPrice, sec_ma50, sec_ma150, sec_ma200, sec_hi52, sec_low52, sec_bbwavg, sec_close ]
+    [ optimum_now and not optimum_prev, emaPrice, sec_ma50, sec_ma150, sec_ma200, sec_hi52, sec_low52, sec_bbwavg, sec_close, sig1, sig2, sig3, sig4, sig5 ]
 
 //
 // TIMEFRAME
@@ -152,24 +171,34 @@ CONTRACTION_BAR_COUNT   = input.int(defval=50, title="Contraction Bar Count", mi
 // USE syminfo.tickerid for current chart
 
 var float[] STACK = array.new_float(size = 0)
-[ is_optimum, sec_ema, sec_ma50, sec_ma150, sec_ma200, sec_hi52, sec_low52, sec_bbwavg, sec_close ] = run_screener_for(syminfo.tickerid, timeframe.period, START, FINISH, ENTRY_QUANTITY, HI_52_WEEK_RANGE, LO_52_WEEK_RANGE, CONTRACTION_BAR_COUNT, ENTRY_STOP_PERCENT, ENTRY_PROFIT_PERCENT, STACK)
+[ is_optimum, sec_ema, sec_ma50, sec_ma150, sec_ma200, sec_hi52, sec_low52, sec_bbwavg, sec_close, sig1, sig2, sig3, sig4, sig5 ] = run_screener_for(syminfo.tickerid, timeframe.period, START, FINISH, ENTRY_QUANTITY, HI_52_WEEK_RANGE, LO_52_WEEK_RANGE, CONTRACTION_BAR_COUNT, ENTRY_STOP_PERCENT, ENTRY_PROFIT_PERCENT, STACK)
 
+// shows the number of signals firing (the more the better)
+sigct = signal_count(sig1, sig2, sig3, sig4, sig5)
+sig_plot_low = plot(sec_ema * 1.15, title='sig1', color=sig1 ? color.white : color.black, linewidth=1, style=plot.style_circles)
+plot(sec_ema * 1.16, title='sig2', color=sig2 ? color.white : color.black, linewidth=1, style=plot.style_circles)
+plot(sec_ema * 1.17, title='sig3', color=sig3 ? color.white : color.black, linewidth=1, style=plot.style_circles)
+plot(sec_ema * 1.18, title='sig4', color=sig4 ? color.white : color.black, linewidth=1, style=plot.style_circles)
+sig_plot_hi = plot(sec_ema * 1.19, title='sig5', color=sig5 ? color.white : color.black, linewidth=1, style=plot.style_circles)
+fill(plot1=sig_plot_low, plot2=sig_plot_hi, color=sigct==1 ? color.navy : sigct==2 ? color.aqua : sigct==3 ? color.lime : sigct==4 ? color.yellow : sigct==5 ? color.white : color.gray, title="signal-strength-area")
+
+// shows the various parameters used to determine the signals
 plot(sec_ema, title="ema", color=is_optimum? color.white : color.blue, linewidth=3)
 plot(sec_ma50, title="MA50", color=is_optimum? color.white : color.lime, linewidth=1)
 plot(sec_ma150, title="MA150", color=is_optimum? color.white : color.green, linewidth=1)
 plot(sec_ma200, title="MA200", color=is_optimum? color.white : color.olive, linewidth=1)
-plot(sec_hi52, title="52WK-High", color=is_optimum? color.white : color.yellow, linewidth=2)
-plot(sec_low52, title="52WK-Low", color=is_optimum? color.white : color.red, linewidth=2)
+plot(sec_hi52, title="52WK-High", color=is_optimum? color.white : color.silver, linewidth=1)
+plot(sec_low52, title="52WK-Low", color=is_optimum? color.white : color.silver, linewidth=1)
 plot(sec_hi52 * HI_52_WEEK_RANGE, title="52WK-Range-High", color=is_optimum? color.white : color.yellow, linewidth=1, style=plot.style_cross)
 plot(sec_low52 * LO_52_WEEK_RANGE, title="52WK-Range-Low", color=is_optimum? color.white : color.red, linewidth=1, style=plot.style_cross)
 
 [bb_low, bb_cent, bb_high] = ta.bb(sec_close, 30, 3)
-plot(bb_low, title="Bol-Bands", color=is_optimum? color.white : color.orange, linewidth=1, style=plot.style_cross)
-plot(bb_high, title="Bol-Bands", color=is_optimum? color.white : color.orange, linewidth=1, style=plot.style_cross)
+plot(bb_low, title="Bol-Bands", color=is_optimum? color.white : color.orange, linewidth=2, style=plot.style_cross)
+plot(bb_high, title="Bol-Bands", color=is_optimum? color.white : color.orange, linewidth=2, style=plot.style_cross)
 
-sec_profit_plot = plot(sec_ema * ENTRY_PROFIT_PERCENT, title="Entry-Profit", color=color.black, linewidth=1)
-sec_stop_plot = plot(sec_ema * ENTRY_STOP_PERCENT, title="Entry-Stop", color=color.black, linewidth=1)
-fill(plot1=sec_profit_plot, plot2=sec_stop_plot, color=color.lime, transp=90, title="Entry-Area")
+//sec_profit_plot = plot(sec_ema * ENTRY_PROFIT_PERCENT, title="Entry-Profit", color=color.black, linewidth=1)
+//sec_stop_plot = plot(sec_ema * ENTRY_STOP_PERCENT, title="Entry-Stop", color=color.black, linewidth=1)
+//fill(plot1=sec_profit_plot, plot2=sec_stop_plot, color=color.lime, transp=90, title="Entry-Area")
 //plot(sec_bbwavg * 1000, title="Bol-Band-Width-Avg", color=is_optimum? color.white : color.teal, linewidth=1)
 
 //var float[] TKR1 = array.new_float(size = 0)
