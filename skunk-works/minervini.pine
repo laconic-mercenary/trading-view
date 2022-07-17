@@ -18,9 +18,6 @@
 //@version=5
 strategy(title="minervini", overlay=true, currency=currency.USD, initial_capital=10000, calc_on_every_tick=true, calc_on_order_fills=true)
 
-// ERRORS
-var string[]    errs                = array.new_string(size = 0)
- 
 //
 // FUNCS
 
@@ -97,16 +94,20 @@ mark_order(order_type, ticker, ticker_close, ticker_index, price = 0.0)=>
     suffix = price > 0.0 ? str.tostring(price) + ":" + str.tostring(ticker) : ""
     if (order_type == "buy")
         ptext = "#" + suffix
-        label.new(x=ticker_index,y=ticker_close,yloc=yloc.abovebar,text=ptext,color=color.blue,style=label.style_label_up,textcolor=color.white,size=size.small)
+        label.new(x=ticker_index,y=ticker_close,yloc=yloc.price,text=ptext,color=color.blue,style=label.style_label_up,textcolor=color.white,size=size.small)
     else
         if (order_type == "stop")
             ptext = "!" + suffix
-            label.new(x=ticker_index,y=ticker_close,yloc=yloc.abovebar,text=ptext,color=color.red,style=label.style_label_up,textcolor=color.white,size=size.small)
+            label.new(x=ticker_index,y=ticker_close,yloc=yloc.price,text=ptext,color=color.red,style=label.style_label_up,textcolor=color.white,size=size.small)
         else 
             if (order_type == "profit")
                 ptext = "$" + suffix
-                label.new(x=ticker_index,y=ticker_close,yloc=yloc.abovebar,text=ptext,color=color.green,style=label.style_label_up,textcolor=color.white,size=size.small)
+                label.new(x=ticker_index,y=ticker_close,yloc=yloc.price,text=ptext,color=color.green,style=label.style_label_up,textcolor=color.white,size=size.small)
     true
+
+mark_ticker(tname,tclose)=>
+    if (barstate.islast)
+        label.new(x=bar_index - 30,y=tclose,yloc=yloc.price,text=str.tostring(tname),color=color.purple,style=label.style_label_up,textcolor=color.white,size=size.small)
 
 place_orders(ticker, qty, stop_percent, profit_percent, ticker_close, ticker_index, stack) => 
     ticker_name = get_name(ticker)
@@ -146,17 +147,16 @@ check_orders(stack, ticker, ticker_close, ticker_low, ticker_high, ticker_index)
         true
     false
         
-run_screener_for(ticker, timeframe, dateStart, dateEnd, qty, ticker_52h_mult, ticker_52l_mult, ticker_bbbars, stop_percent, profit_percent, stack) => 
+run_screener_for(ticker, timeframe, dateStart, dateEnd, qty, ticker_52h_mult, ticker_52l_mult, ticker_bbbars, stop_percent, profit_percent, stack, runstrategy = true) => 
     [ emaPrice, sec_ma50, sec_ma150, sec_ma200, sec_hi52, sec_low52, sec_bbwavg, sec_open, sec_close, sec_low, sec_high, sec_bar_index ] = request.security(ticker, timeframe, screener_function())
     [sig1, sig2, sig3, sig4, sig5] = signals(sec_ma50, sec_ma150, sec_ma200, sec_hi52, ticker_52h_mult, sec_low52, ticker_52l_mult, sec_bbwavg, ticker_bbbars, sec_open, sec_close)
-    sigct = signal_count(sig1, sig2, sig3, sig4, sig5)
-    opt_now = optimum(sigct)
     [sig1_prev, sig2_prev, sig3_prev, sig4_prev, sig5_prev] = signals(sec_ma50[1], sec_ma150[1], sec_ma200[1], sec_hi52[1], ticker_52h_mult, sec_low52[1], ticker_52l_mult, sec_bbwavg[1], ticker_bbbars, sec_open[1], sec_close[1])
+    sigct = signal_count(sig1, sig2, sig3, sig4, sig5)
     sigct_prev = signal_count(sig1_prev, sig2_prev, sig3_prev, sig4_prev, sig5_prev)
-    opt_prev = optimum(sigct_prev)
-    if (in_time_window(dateStart, dateEnd))
+    if (in_time_window(dateStart, dateEnd) and runstrategy)
         check_alerts(ticker, sigct)
-        if (opt_now and not opt_prev)
+        mark_ticker(ticker, sec_close)
+        if (optimum(sigct) and not optimum(sigct_prev))
             place_orders(ticker, qty, stop_percent, profit_percent, sec_close, bar_index, stack)
         else
             check_orders(stack, ticker, sec_close, sec_low, sec_high, bar_index)
@@ -177,7 +177,8 @@ HI_52_WEEK_RANGE        = input.float(defval=0.75, title="% below 52 week high",
 LO_52_WEEK_RANGE        = input.float(defval=1.25, title="% above 52 week low", minval=1.0, maxval=2.0, step=0.01)
 CONTRACTION_BAR_COUNT   = input.int(defval=50, title="Contraction Bar Count", minval=5, maxval=200, step=1)
 
-PLOT_SIGNAL_PARAMS      = input.bool(defval=true, title="PLOT - Signal Params")
+PLOT_SIGNAL_PARAMS      = input.bool(defval=true, title="PLOT - Plot Signal Params?")
+PLOT_SP500              = input.bool(defval=true, title="PLOT - Plot S&P500?")
 
 //
 // MAIN
@@ -209,14 +210,7 @@ plot(series=PLOT_SIGNAL_PARAMS ? bb_high : na, title="Bol-Bands", color=optimum(
 
 // the below demonstrates how to add additional tickers to act as a screener
 
-// #2
-//var float[] STACK2 = array.new_float(size = 0)
-//[ is_optimum_2, sec_ema_2, sec_ma50_2, sec_ma150_2, sec_ma200_2, sec_hi52_2, sec_low52_2, sec_bbwavg_2, sec_close_2, sig1_2, sig2_2, sig3_2, sig4_2, sig5_2 ] = run_screener_for("NASDAQ:AAPL", timeframe.period, START, FINISH, ENTRY_QUANTITY, HI_52_WEEK_RANGE, LO_52_WEEK_RANGE, CONTRACTION_BAR_COUNT, ENTRY_STOP_PERCENT, ENTRY_PROFIT_PERCENT, STACK2)
-//sigct2 = signal_count(sig1_2, sig2_2, sig3_2, sig4_2, sig5_2)
-//plot(series=sec_ema_2, title="ema2", color=sigct2==1 ? color.navy : sigct2==2 ? color.aqua : sigct2==3 ? color.lime : sigct2==4 ? color.yellow : sigct2==5 ? color.white : color.gray, linewidth=4)
+var float[] SP500STACK = array.new_float(size = 0)
+[ sp500ema, sp500ma50, sp500ma150, sp500ma200, sp500hi52, sp500low52, sp500bbwavg, sp500close, sp500sigct ] = run_screener_for("NASDAQ:QQQ", timeframe.period, START, FINISH, ENTRY_QUANTITY, HI_52_WEEK_RANGE, LO_52_WEEK_RANGE, CONTRACTION_BAR_COUNT, ENTRY_STOP_PERCENT, ENTRY_PROFIT_PERCENT, SP500STACK, runstrategy=PLOT_SP500)
+plot(series=PLOT_SP500 ? sp500ema : na, title="ema", color=single_signal(sp500sigct) ? color.navy : double_signal(sp500sigct) ? color.aqua : triple_signal(sp500sigct) ? color.lime : quad_signal(sp500sigct) ? color.yellow : optimum(sp500sigct) ? color.white : color.gray, linewidth=4)
 
-// #3
-//var float[] STACK3 = array.new_float(size = 0)
-//[ is_optimum_3, sec_ema_3, sec_ma50_3, sec_ma150_3, sec_ma200_3, sec_hi52_3, sec_low52_3, sec_bbwavg_3, sec_close_3, sig1_3, sig2_3, sig3_3, sig4_3, sig5_3 ] = run_screener_for("NASDAQ:SIGA", timeframe.period, START, FINISH, ENTRY_QUANTITY, HI_52_WEEK_RANGE, LO_52_WEEK_RANGE, CONTRACTION_BAR_COUNT, ENTRY_STOP_PERCENT, ENTRY_PROFIT_PERCENT, STACK3)
-//sigct3 = signal_count(sig1_3, sig2_3, sig3_3, sig4_3, sig5_3)
-//plot(series=sec_ema_3, title="ema3", color=sigct3==1 ? color.navy : sigct3==2 ? color.aqua : sigct3==3 ? color.lime : sigct3==4 ? color.yellow : sigct3==5 ? color.white : color.gray, linewidth=4)
