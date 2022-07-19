@@ -30,9 +30,10 @@ ENTRY_QUANTITY          = input.int(defval=1, title="ENTRY - Quantity", minval=1
 ENTRY_STOP_PERCENT      = input.float(defval=0.90, title="ENTRY - Stop Loss %", minval=0.1, maxval=1.0, step=0.01)
 ENTRY_PROFIT_PERCENT    = input.float(defval=1.20, title="ENTRY - Take Profit %", minval=1.0, maxval=2.0, step=0.01)
 
-HI_52_WEEK_RANGE        = input.float(defval=0.75, title="% below 52 week high", minval=0.1, maxval=1.0, step=0.01)
-LO_52_WEEK_RANGE        = input.float(defval=1.25, title="% above 52 week low", minval=1.0, maxval=2.0, step=0.01)
-CONTRACTION_BAR_COUNT   = input.int(defval=50, title="Contraction Bar Count", minval=5, maxval=200, step=1)
+HI_52_WEEK_RANGE        = input.float(defval=0.75, title="SIGNALS - % below 52 week high", minval=0.1, maxval=1.0, step=0.01)
+LO_52_WEEK_RANGE        = input.float(defval=1.25, title="SIGNALS - % above 52 week low", minval=1.0, maxval=2.0, step=0.01)
+CONTRACTION_BAR_COUNT   = input.int(defval=50, title="SIGNALS - Contraction Bar Count", minval=5, maxval=200, step=1)
+BOLLINGER_BAND_LEN      = input.int(defval=30, title="SIGNALS - Bollinger Band Length", minval=10, maxval=180, step=1)
 
 PLOT_SIGNAL_PARAMS      = input.bool(defval=false, title="PLOT - Plot Signal Params?")
 PLOT_SP500              = input.bool(defval=false, title="PLOT - Plot S&P500?")
@@ -62,15 +63,17 @@ sig_ma200_uptrend_30days(ma200) =>
     ((ta.change(ma200, 30) > 0.0) and (ta.change(ma200, 15) > 0.0))
 
 sig_bb_contracting(bbwavg, bars) =>
-    chunk=bars/4
-    ((bbwavg[bars] > bbwavg[bars - chunk]) and (bbwavg[bars - chunk] > bbwavg[bars - chunk*2]) and (bbwavg[bars - chunk*2] > bbwavg[bars - chunk*3]) and (bbwavg[bars - chunk*3] > bbwavg[0]))
+    ta.falling(bbwavg * 1000, bars)
+    // NOTE: this was the old "algorithm" - considering comparing the 2 for certain tickers
+    //chunk=bars/4
+    //((bbwavg[bars] > bbwavg[bars - chunk]) and (bbwavg[bars - chunk] > bbwavg[bars - chunk*2]) and (bbwavg[bars - chunk*2] > bbwavg[bars - chunk*3]) and (bbwavg[bars - chunk*3] > bbwavg[0]))
 
 signals(ma50, ma150, ma200, hi52week, hi52multiplier, low52week, low52multiplier, bbwavg, bars, opn, cls) => 
     s1 = sig_ma200_uptrend_30days(ma200)
     s2 = sig_ma_uptrend(ma50, ma150, ma200)
     s3 = sig_price_above_ma(ma50, ma150, ma200, opn, cls)
     s4 = sig_price_in_52wk_range(hi52week, hi52multiplier, low52week, low52multiplier, opn, cls)
-    s5 = sig_bb_contracting(bbwavg * 1000, bars)
+    s5 = sig_bb_contracting(bbwavg, bars)
     [s5, s4, s3, s2, s1]
 
 signal_count(s1, s2, s3, s4, s5)=>
@@ -108,8 +111,8 @@ check_alerts(ticker, sigct) =>
     else if (triple_signal(sigct))
         alert(message = "Good: " + str.tostring(ticker), freq = alert.freq_once_per_bar_close)
 
-screener_function() =>
-    [ta.ema(close, 3), ta.sma(close, 50), ta.sma(close, 150), ta.sma(close, 200), ta.highest(high, 251), ta.lowest(low, 251), ta.ema(ta.bbw(close, 20, 3), 20), open, close, low, high, bar_index]
+screener_function(bblen=20) =>
+    [ta.ema(close, 3), ta.sma(close, 50), ta.sma(close, 150), ta.sma(close, 200), ta.highest(high, 251), ta.lowest(low, 251), ta.ema(ta.bbw(close, bblen, 3), bblen), open, close, low, high, bar_index]
 
 mark_order(order_type, ticker, ticker_close, ticker_index, price = 0.0)=>
     suffix = price > 0.0 ? str.tostring(price) + ":" + str.tostring(ticker) : ""
@@ -188,8 +191,8 @@ check_orders(stack, ticker, ticker_close, ticker_low, ticker_high, ticker_index)
         true
     false
         
-run_screener_for(ticker, timeframe, dateStart, dateEnd, qty, ticker_52h_mult, ticker_52l_mult, ticker_bbbars, stop_percent, profit_percent, stack, runstrategy = true) => 
-    [ emaPrice, sec_ma50, sec_ma150, sec_ma200, sec_hi52, sec_low52, sec_bbwavg, sec_open, sec_close, sec_low, sec_high, sec_bar_index ] = request.security(ticker, timeframe, screener_function())
+run_screener_for(ticker, timeframe, dateStart, dateEnd, qty, ticker_52h_mult, ticker_52l_mult, ticker_bbbars, stop_percent, profit_percent, stack, runstrategy = true, ticker_bblen) => 
+    [ emaPrice, sec_ma50, sec_ma150, sec_ma200, sec_hi52, sec_low52, sec_bbwavg, sec_open, sec_close, sec_low, sec_high, sec_bar_index ] = request.security(ticker, timeframe, screener_function(bblen=ticker_bblen))
     [sig1, sig2, sig3, sig4, sig5] = signals(sec_ma50, sec_ma150, sec_ma200, sec_hi52, ticker_52h_mult, sec_low52, ticker_52l_mult, sec_bbwavg, ticker_bbbars, sec_open, sec_close)
     [sig1_prev, sig2_prev, sig3_prev, sig4_prev, sig5_prev] = signals(sec_ma50[1], sec_ma150[1], sec_ma200[1], sec_hi52[1], ticker_52h_mult, sec_low52[1], ticker_52l_mult, sec_bbwavg[1], ticker_bbbars, sec_open[1], sec_close[1])
     sigct = signal_count(sig1, sig2, sig3, sig4, sig5)
@@ -204,10 +207,10 @@ run_screener_for(ticker, timeframe, dateStart, dateEnd, qty, ticker_52h_mult, ti
     [ emaPrice, sec_ma50, sec_ma150, sec_ma200, sec_hi52, sec_low52, sec_bbwavg, sec_close, sigct ]
 
 run_screener_default(ticker=syminfo.tickerid, orderstack, runstrategy=true)=>
-    run_screener_for(ticker, timeframe.period, START, FINISH, ENTRY_QUANTITY, HI_52_WEEK_RANGE, LO_52_WEEK_RANGE, CONTRACTION_BAR_COUNT, ENTRY_STOP_PERCENT, ENTRY_PROFIT_PERCENT, stack=orderstack, runstrategy=runstrategy)
+    run_screener_for(ticker, timeframe.period, dateStart=START, dateEnd=FINISH, qty=ENTRY_QUANTITY, ticker_52h_mult=HI_52_WEEK_RANGE, ticker_52l_mult=LO_52_WEEK_RANGE, ticker_bbbars=CONTRACTION_BAR_COUNT, stop_percent=ENTRY_STOP_PERCENT, profit_percent=ENTRY_PROFIT_PERCENT, stack=orderstack, runstrategy=runstrategy, ticker_bblen=BOLLINGER_BAND_LEN)
 
 run_screener_simple(ticker=syminfo.tickerid, orderstack, runstrategy=true)=>
-    [ ema, ma50, ma150, ma200, hi52, low52, bbwavg, tclose, sigct ] = run_screener_default(ticker, orderstack,runstrategy)
+    [ ema, ma50, ma150, ma200, hi52, low52, bbwavg, tclose, sigct ] = run_screener_default(ticker, orderstack, runstrategy)
     [ ema, sigct ]
 
 //
@@ -227,9 +230,10 @@ plot(series=PLOT_SIGNAL_PARAMS ? this_sec_low52 : na, title="52WK-Low", color=op
 plot(series=PLOT_SIGNAL_PARAMS ? this_sec_hi52 * HI_52_WEEK_RANGE : na, title="52WK-Range-High", color=optimum(this_sec_sigct) ? color.white : color.green, linewidth=1, style=plot.style_cross)
 plot(series=PLOT_SIGNAL_PARAMS ? this_sec_low52 * LO_52_WEEK_RANGE : na, title="52WK-Range-Low", color=optimum(this_sec_sigct) ? color.white : color.red, linewidth=1, style=plot.style_cross)
 
-[bb_low, bb_cent, bb_high] = ta.bb(this_sec_close, 30, 3)
-plot(series=PLOT_SIGNAL_PARAMS ? bb_low : na, title="Bol-Bands", color=optimum(this_sec_sigct) ? color.white : color.orange, linewidth=2, style=plot.style_cross)
-plot(series=PLOT_SIGNAL_PARAMS ? bb_high : na, title="Bol-Bands", color=optimum(this_sec_sigct) ? color.white : color.orange, linewidth=2, style=plot.style_cross)
+[bb_low, bb_cent, bb_high] = ta.bb(this_sec_close, BOLLINGER_BAND_LEN, 3) 
+plot(series=PLOT_SIGNAL_PARAMS ? bb_low : na, title="Bol-Bands", color=ta.falling(this_sec_bbwavg*1000,CONTRACTION_BAR_COUNT) ? color.green : color.orange, linewidth=2, style=plot.style_cross)
+plot(series=PLOT_SIGNAL_PARAMS ? bb_high : na, title="Bol-Bands", color=ta.falling(this_sec_bbwavg*1000,CONTRACTION_BAR_COUNT) ? color.green : color.orange, linewidth=2, style=plot.style_cross)
+//plot(series=PLOT_SIGNAL_PARAMS ? this_sec_bbwavg*100 : na, title="Bol-Bands-Avg", color=ta.falling(this_sec_bbwavg*1000,CONTRACTION_BAR_COUNT) ? color.green : color.maroon, linewidth=2, style=plot.style_cross)
 
 //sec_profit_plot = plot(sec_ema * ENTRY_PROFIT_PERCENT, title="Entry-Profit", color=color.black, linewidth=1)
 //sec_stop_plot = plot(sec_ema * ENTRY_STOP_PERCENT, title="Entry-Stop", color=color.black, linewidth=1)
@@ -244,22 +248,14 @@ var float[] SP500STACK = array.new_float(size = 0)
 [ sp500ema, sp500sigct ] = run_screener_simple("NASDAQ:QQQ", orderstack=SP500STACK, runstrategy=(PLOT_SP500 and RUN_STRATEGY))
 plot(series=PLOT_SP500 ? sp500ema : na, title="sp500_ema", color=color_from_sigs(sp500sigct), linewidth=4)
 
-var float[] jnj_STACK = array.new_float(size = 0)
-[ jnj_ema, jnj_sigct ] = run_screener_simple("NYSE:JNJ", orderstack=jnj_STACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
-plot(series=check_plot(jnj_ema), title="jnj_ema", color=color_from_sigs(jnj_sigct), linewidth=4)
-
 var float[] unh_STACK = array.new_float(size = 0)
 [ unh_ema, unh_sigct ] = run_screener_simple("NYSE:UNH", orderstack=unh_STACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
 plot(series=check_plot(unh_ema), title="unh_ema", color=color_from_sigs(unh_sigct), linewidth=4)
 
-var float[] gitlab_STACK = array.new_float(size = 0)
-[ gitlab_ema, gitlab_sigct ] = run_screener_simple("NASDAQ:GTLB", orderstack=gitlab_STACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
-plot(series=check_plot(gitlab_ema), title="gitlab_ema", color=color_from_sigs(gitlab_sigct), linewidth=4)
-
-var float[] rivn_STACK = array.new_float(size = 0)
-[ rivn_ema, rivn_sigct ] = run_screener_simple("NASDAQ:RIVN", orderstack=rivn_STACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
-plot(series=check_plot(rivn_ema), title="rivn_ema", color=color_from_sigs(rivn_sigct), linewidth=4)
-
 var float[] halo_STACK = array.new_float(size = 0)
 [ halo_ema, halo_sigct ] = run_screener_simple("NASDAQ:HALO", orderstack=halo_STACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
 plot(series=check_plot(halo_ema), title="halo_ema", color=color_from_sigs(halo_sigct), linewidth=4)
+
+var float[] lucid_STACK = array.new_float(size = 0)
+[ lucid_ema, lucid_sigct ] = run_screener_simple("NASDAQ:LCID", orderstack=lucid_STACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
+plot(series=check_plot(lucid_ema), title="lucid_ema", color=color_from_sigs(lucid_sigct), linewidth=4)
