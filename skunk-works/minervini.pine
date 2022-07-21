@@ -133,6 +133,13 @@ mark_ticker(tname,tclose)=>
     if (barstate.islast)
         label.new(x=bar_index - 30,y=tclose,yloc=yloc.price,text=str.tostring(tname),color=color.purple,style=label.style_label_up,textcolor=color.white,size=size.small)
 
+mark_current_status(tclose,sigct)=>
+    if (barstate.islast)
+        if (sigct >= 3)
+            clr = optimum(sigct) ? color.white : quad_signal(sigct) ? color.yellow : triple_signal(sigct) ? color.lime : color.gray
+            lbl = optimum(sigct) ? "5" : quad_signal(sigct) ? "4" : triple_signal(sigct) ? "3" : "0"
+            label.new(x=bar_index - 20,y=tclose,yloc=yloc.price,text=lbl,color=clr,style=label.style_label_up,textcolor=clr,size=size.small)
+
 color_from_sigs(sigct)=>
     if (single_signal(sigct))
         color.navy
@@ -200,6 +207,7 @@ run_screener_for(ticker, timeframe, dateStart, dateEnd, qty, ticker_52h_mult, ti
     if (in_time_window(dateStart, dateEnd) and runstrategy)
         check_alerts(ticker, sigct)
         mark_ticker(ticker, sec_close)
+        mark_current_status(sec_close,sigct)
         if (optimum(sigct) and not optimum(sigct_prev))
             place_orders(ticker, qty, stop_percent, profit_percent, sec_close, bar_index, stack)
         else
@@ -222,7 +230,7 @@ var float[] STACK = array.new_float(size = 0)
 [ this_sec_ema, this_sec_ma50, this_sec_ma150, this_sec_ma200, this_sec_hi52, this_sec_low52, this_sec_bbwavg, this_sec_close, this_sec_sigct ] = run_screener_default(syminfo.tickerid, orderstack=STACK,runstrategy=RUN_STRATEGY)
 plot(series=this_sec_ema, title="ema", color=color_from_sigs(this_sec_sigct), linewidth=4)
 
-plot(series=PLOT_SIGNAL_PARAMS ? this_sec_ma50 : na, title="MA50", color=optimum(this_sec_sigct) ? color.white : color.lime, linewidth=1)
+plot(series=PLOT_SIGNAL_PARAMS ? this_sec_ma50 : na, title="MA50", color=optimum(this_sec_sigct) ? color.white : color.lime, linewidth=2)
 plot(series=PLOT_SIGNAL_PARAMS ? this_sec_ma150 : na, title="MA150", color=optimum(this_sec_sigct) ? color.white : color.green, linewidth=1)
 plot(series=PLOT_SIGNAL_PARAMS ? this_sec_ma200 : na, title="MA200", color=optimum(this_sec_sigct) ? color.white : color.olive, linewidth=1)
 plot(series=PLOT_SIGNAL_PARAMS ? this_sec_hi52 : na, title="52WK-High", color=optimum(this_sec_sigct) ? color.white : color.fuchsia, linewidth=1)
@@ -234,28 +242,67 @@ plot(series=PLOT_SIGNAL_PARAMS ? this_sec_low52 * LO_52_WEEK_RANGE : na, title="
 plot(series=PLOT_SIGNAL_PARAMS ? bb_low : na, title="Bol-Bands", color=ta.falling(this_sec_bbwavg*1000,CONTRACTION_BAR_COUNT) ? color.green : color.orange, linewidth=2, style=plot.style_cross)
 plot(series=PLOT_SIGNAL_PARAMS ? bb_high : na, title="Bol-Bands", color=ta.falling(this_sec_bbwavg*1000,CONTRACTION_BAR_COUNT) ? color.green : color.orange, linewidth=2, style=plot.style_cross)
 //plot(series=PLOT_SIGNAL_PARAMS ? this_sec_bbwavg*100 : na, title="Bol-Bands-Avg", color=ta.falling(this_sec_bbwavg*1000,CONTRACTION_BAR_COUNT) ? color.green : color.maroon, linewidth=2, style=plot.style_cross)
-
+plot(series=(PLOT_SIGNAL_PARAMS and barstate.islast) ? this_sec_close * ENTRY_PROFIT_PERCENT : na, title="take-profit", color=color.lime, linewidth=3, style=plot.style_line)
+plot(series=(PLOT_SIGNAL_PARAMS and barstate.islast) ? this_sec_close * ENTRY_STOP_PERCENT : na, title="stop-loss", color=color.red, linewidth=3, style=plot.style_line)
 //sec_profit_plot = plot(sec_ema * ENTRY_PROFIT_PERCENT, title="Entry-Profit", color=color.black, linewidth=1)
 //sec_stop_plot = plot(sec_ema * ENTRY_STOP_PERCENT, title="Entry-Stop", color=color.black, linewidth=1)
 //fill(plot1=sec_profit_plot, plot2=sec_stop_plot, color=color.lime, transp=90, title="Entry-Area")
 
-//
-// ADDTL SCREENING 
-
-// the below demonstrates how to add additional tickers to act as a screener
+///////////////////////////////////////
+// SP500
+// comparison plot
+///////////////////////////////////////
 
 var float[] SP500STACK = array.new_float(size = 0)
 [ sp500ema, sp500sigct ] = run_screener_simple("NASDAQ:QQQ", orderstack=SP500STACK, runstrategy=(PLOT_SP500 and RUN_STRATEGY))
 plot(series=PLOT_SP500 ? sp500ema : na, title="sp500_ema", color=color_from_sigs(sp500sigct), linewidth=4)
 
-var float[] unh_STACK = array.new_float(size = 0)
-[ unh_ema, unh_sigct ] = run_screener_simple("NYSE:UNH", orderstack=unh_STACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
-plot(series=check_plot(unh_ema), title="unh_ema", color=color_from_sigs(unh_sigct), linewidth=4)
+///////////////////////////////////////
+// ADDTL SCREENERS
+// comparison plots
+///////////////////////////////////////
 
-var float[] halo_STACK = array.new_float(size = 0)
-[ halo_ema, halo_sigct ] = run_screener_simple("NASDAQ:HALO", orderstack=halo_STACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
-plot(series=check_plot(halo_ema), title="halo_ema", color=color_from_sigs(halo_sigct), linewidth=4)
 
-var float[] lucid_STACK = array.new_float(size = 0)
-[ lucid_ema, lucid_sigct ] = run_screener_simple("NASDAQ:LCID", orderstack=lucid_STACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
-plot(series=check_plot(lucid_ema), title="lucid_ema", color=color_from_sigs(lucid_sigct), linewidth=4)
+var float[] ESSTACK = array.new_float(size = 0)
+[ ESema, ESsigct ] = run_screener_simple("NYSE:ES", orderstack=ESSTACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
+plot(series=PLOT_SCREENERS ? ESema : na, title="ES_ema", color=color_from_sigs(ESsigct), linewidth=4)
+
+var float[] SMHSTACK = array.new_float(size = 0)
+[ SMHema, SMHsigct ] = run_screener_simple("NASDAQ:SMH", orderstack=SMHSTACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
+plot(series=PLOT_SCREENERS ? SMHema : na, title="SMH_ema", color=color_from_sigs(SMHsigct), linewidth=4)
+
+var float[] DECKSTACK = array.new_float(size = 0)
+[ DECKema, DECKsigct ] = run_screener_simple("NYSE:DECK", orderstack=DECKSTACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
+plot(series=PLOT_SCREENERS ? DECKema : na, title="DECK_ema", color=color_from_sigs(DECKsigct), linewidth=4)
+
+var float[] LNTHSTACK = array.new_float(size = 0)
+[ LNTHema, LNTHsigct ] = run_screener_simple("NASDAQ:LNTH", orderstack=LNTHSTACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
+plot(series=PLOT_SCREENERS ? LNTHema : na, title="LNTH_ema", color=color_from_sigs(LNTHsigct), linewidth=4)
+
+var float[] FNDSTACK = array.new_float(size = 0)
+[ FNDema, FNDsigct ] = run_screener_simple("NYSE:FND", orderstack=FNDSTACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
+plot(series=PLOT_SCREENERS ? FNDema : na, title="FND_ema", color=color_from_sigs(FNDsigct), linewidth=4)
+
+var float[] CDNSSTACK = array.new_float(size = 0)
+[ CDNSema, CDNSsigct ] = run_screener_simple("NASDAQ:CDNS", orderstack=CDNSSTACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
+plot(series=PLOT_SCREENERS ? CDNSema : na, title="CDNS_ema", color=color_from_sigs(CDNSsigct), linewidth=4)
+
+var float[] SNPSSTACK = array.new_float(size = 0)
+[ SNPSema, SNPSsigct ] = run_screener_simple("NASDAQ:SNPS", orderstack=SNPSSTACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
+plot(series=PLOT_SCREENERS ? SNPSema : na, title="SNPS_ema", color=color_from_sigs(SNPSsigct), linewidth=4)
+
+var float[] UNHSTACK = array.new_float(size = 0)
+[ UNHema, UNHsigct ] = run_screener_simple("NYSE:UNH", orderstack=UNHSTACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
+plot(series=PLOT_SCREENERS ? UNHema : na, title="UNH_ema", color=color_from_sigs(UNHsigct), linewidth=4)
+
+var float[] CNCSTACK = array.new_float(size = 0)
+[ CNCema, CNCsigct ] = run_screener_simple("NYSE:CNC", orderstack=CNCSTACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
+plot(series=PLOT_SCREENERS ? CNCema : na, title="CNC_ema", color=color_from_sigs(CNCsigct), linewidth=4)
+
+var float[] HUMSTACK = array.new_float(size = 0)
+[ HUMema, HUMsigct ] = run_screener_simple("NYSE:HUM", orderstack=HUMSTACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
+plot(series=PLOT_SCREENERS ? HUMema : na, title="HUM_ema", color=color_from_sigs(HUMsigct), linewidth=4)
+
+var float[] NFLXSTACK = array.new_float(size = 0)
+[ NFLXema, NFLXsigct ] = run_screener_simple("NASDAQ:NFLX", orderstack=NFLXSTACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
+plot(series=PLOT_SCREENERS ? NFLXema : na, title="NFLX_ema", color=color_from_sigs(NFLXsigct), linewidth=4)
