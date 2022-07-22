@@ -99,7 +99,21 @@ triple_signal(sig_ct)=>(sig_ct==3)
 quad_signal(sig_ct)=>(sig_ct==4)
 
 optimum(sig_ct)=>(sig_ct==5)
-    
+
+color_from_sigs(sigct)=>
+    if (single_signal(sigct))
+        color.navy
+    else if (double_signal(sigct))
+        color.aqua
+    else if (triple_signal(sigct))
+        color.lime
+    else if (quad_signal(sigct))
+        color.yellow
+    else if (optimum(sigct))
+        color.white
+    else
+        color.gray
+
 in_time_window(start, finish) =>
     (time >= start and time <= finish)
 
@@ -129,30 +143,11 @@ mark_order(order_type, ticker, ticker_close, ticker_index, price = 0.0)=>
                 label.new(x=ticker_index,y=ticker_close,yloc=yloc.price,text=ptext,color=color.green,style=label.style_label_up,textcolor=color.white,size=size.small)
     true
 
-mark_ticker(tname,tclose)=>
+mark_ticker(tname,tclose,sigct)=>
     if (barstate.islast)
-        label.new(x=bar_index - 30,y=tclose,yloc=yloc.price,text=str.tostring(tname),color=color.purple,style=label.style_label_up,textcolor=color.white,size=size.small)
-
-mark_current_status(tclose,sigct)=>
-    if (barstate.islast)
-        if (sigct >= 3)
-            clr = optimum(sigct) ? color.white : quad_signal(sigct) ? color.yellow : triple_signal(sigct) ? color.lime : color.gray
-            lbl = optimum(sigct) ? "5" : quad_signal(sigct) ? "4" : triple_signal(sigct) ? "3" : "0"
-            label.new(x=bar_index - 20,y=tclose,yloc=yloc.price,text=lbl,color=clr,style=label.style_label_up,textcolor=clr,size=size.small)
-
-color_from_sigs(sigct)=>
-    if (single_signal(sigct))
-        color.navy
-    else if (double_signal(sigct))
-        color.aqua
-    else if (triple_signal(sigct))
-        color.lime
-    else if (quad_signal(sigct))
-        color.yellow
-    else if (optimum(sigct))
-        color.white
-    else
-        color.gray
+        clr = color_from_sigs(sigct)
+        lbl = sigct < 3 ? color.white : color.black
+        label.new(x=bar_index - 20,y=tclose,yloc=yloc.price,text=str.tostring(tname),color=clr,style=label.style_label_up,textcolor=lbl,size=size.normal)
 
 check_plot(price_action)=>
     if (PLOT_SCREENERS) 
@@ -206,8 +201,7 @@ run_screener_for(ticker, timeframe, dateStart, dateEnd, qty, ticker_52h_mult, ti
     sigct_prev = signal_count(sig1_prev, sig2_prev, sig3_prev, sig4_prev, sig5_prev)
     if (in_time_window(dateStart, dateEnd) and runstrategy)
         check_alerts(ticker, sigct)
-        mark_ticker(ticker, sec_close)
-        mark_current_status(sec_close,sigct)
+        mark_ticker(ticker, sec_close, sigct)
         if (optimum(sigct) and not optimum(sigct_prev))
             place_orders(ticker, qty, stop_percent, profit_percent, sec_close, bar_index, stack)
         else
