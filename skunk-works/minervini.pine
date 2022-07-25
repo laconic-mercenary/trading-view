@@ -155,6 +155,9 @@ check_plot(price_action)=>
     else 
         na
 
+buy_signal(sigct)=>
+    optimum(sigct)
+
 place_orders(ticker, qty, stop_percent, profit_percent, ticker_close, ticker_index, stack) => 
     ticker_name = get_name(ticker)
     price_stop_loss = (ticker_close * stop_percent)
@@ -202,7 +205,7 @@ run_screener_for(ticker, timeframe, dateStart, dateEnd, qty, ticker_52h_mult, ti
     if (in_time_window(dateStart, dateEnd) and runstrategy)
         check_alerts(ticker, sigct)
         mark_ticker(ticker, sec_close, sigct)
-        if (optimum(sigct) and not optimum(sigct_prev))
+        if (buy_signal(sigct) and not buy_signal(sigct_prev))
             place_orders(ticker, qty, stop_percent, profit_percent, sec_close, bar_index, stack)
         else
             check_orders(stack, ticker, sec_close, sec_low, sec_high, bar_index)
@@ -236,11 +239,14 @@ plot(series=PLOT_SIGNAL_PARAMS ? this_sec_low52 * LO_52_WEEK_RANGE : na, title="
 plot(series=PLOT_SIGNAL_PARAMS ? bb_low : na, title="Bol-Bands", color=ta.falling(this_sec_bbwavg*1000,CONTRACTION_BAR_COUNT) ? color.green : color.orange, linewidth=2, style=plot.style_cross)
 plot(series=PLOT_SIGNAL_PARAMS ? bb_high : na, title="Bol-Bands", color=ta.falling(this_sec_bbwavg*1000,CONTRACTION_BAR_COUNT) ? color.green : color.orange, linewidth=2, style=plot.style_cross)
 //plot(series=PLOT_SIGNAL_PARAMS ? this_sec_bbwavg*100 : na, title="Bol-Bands-Avg", color=ta.falling(this_sec_bbwavg*1000,CONTRACTION_BAR_COUNT) ? color.green : color.maroon, linewidth=2, style=plot.style_cross)
+
+//
+// PLOT: Take Profit and Stop Loss price targets
 plot(series=(PLOT_SIGNAL_PARAMS and barstate.islast) ? this_sec_close * ENTRY_PROFIT_PERCENT : na, title="take-profit", color=color.lime, linewidth=3, style=plot.style_line)
 plot(series=(PLOT_SIGNAL_PARAMS and barstate.islast) ? this_sec_close * ENTRY_STOP_PERCENT : na, title="stop-loss", color=color.red, linewidth=3, style=plot.style_line)
-//sec_profit_plot = plot(sec_ema * ENTRY_PROFIT_PERCENT, title="Entry-Profit", color=color.black, linewidth=1)
-//sec_stop_plot = plot(sec_ema * ENTRY_STOP_PERCENT, title="Entry-Stop", color=color.black, linewidth=1)
-//fill(plot1=sec_profit_plot, plot2=sec_stop_plot, color=color.lime, transp=90, title="Entry-Area")
+if (barstate.islast and PLOT_SIGNAL_PARAMS)
+    label.new(x=bar_index,y=this_sec_close * ENTRY_PROFIT_PERCENT,yloc=yloc.price,text=str.tostring(this_sec_close * ENTRY_PROFIT_PERCENT),color=color.lime,style=label.style_label_left,textcolor=color.black,size=size.small)
+    label.new(x=bar_index,y=this_sec_close * ENTRY_STOP_PERCENT,yloc=yloc.price,text=str.tostring(this_sec_close * ENTRY_STOP_PERCENT),color=color.red,style=label.style_label_left,textcolor=color.black,size=size.small)
 
 ///////////////////////////////////////
 // SP500
@@ -300,3 +306,7 @@ plot(series=PLOT_SCREENERS ? HUMema : na, title="HUM_ema", color=color_from_sigs
 var float[] NFLXSTACK = array.new_float(size = 0)
 [ NFLXema, NFLXsigct ] = run_screener_simple("NASDAQ:NFLX", orderstack=NFLXSTACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
 plot(series=PLOT_SCREENERS ? NFLXema : na, title="NFLX_ema", color=color_from_sigs(NFLXsigct), linewidth=4)
+
+var float[] WWESTACK = array.new_float(size = 0)
+[ WWEema, WWEsigct ] = run_screener_simple("NYSE:WWE", orderstack=WWESTACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
+plot(series=PLOT_SCREENERS ? WWEema : na, title="WWE_ema", color=color_from_sigs(WWEsigct), linewidth=4)
