@@ -147,7 +147,8 @@ mark_ticker(tname,tclose,sigct)=>
     if (barstate.islast)
         clr = color_from_sigs(sigct)
         lbl = sigct < 3 ? color.white : color.black
-        label.new(x=bar_index - 20,y=tclose,yloc=yloc.price,text=str.tostring(tname),color=clr,style=label.style_label_up,textcolor=lbl,size=size.normal)
+        is_opt = optimum(sigct)
+        label.new(x=bar_index - 20,y=tclose,yloc=yloc.price,text=str.tostring(tname),color=clr,style=label.style_label_up,textcolor=lbl,size=is_opt ? size.large : size.normal)
 
 check_plot(price_action)=>
     if (PLOT_SCREENERS) 
@@ -229,15 +230,15 @@ plot(series=this_sec_ema, title="ema", color=color_from_sigs(this_sec_sigct), li
 
 plot(series=PLOT_SIGNAL_PARAMS ? this_sec_ma50 : na, title="MA50", color=optimum(this_sec_sigct) ? color.white : color.lime, linewidth=2)
 plot(series=PLOT_SIGNAL_PARAMS ? this_sec_ma150 : na, title="MA150", color=optimum(this_sec_sigct) ? color.white : color.green, linewidth=1)
-plot(series=PLOT_SIGNAL_PARAMS ? this_sec_ma200 : na, title="MA200", color=optimum(this_sec_sigct) ? color.white : color.olive, linewidth=1)
+plot(series=PLOT_SIGNAL_PARAMS ? this_sec_ma200 : na, title="MA200", color=optimum(this_sec_sigct) ? color.white : color.olive, linewidth=2)
 plot(series=PLOT_SIGNAL_PARAMS ? this_sec_hi52 : na, title="52WK-High", color=optimum(this_sec_sigct) ? color.white : color.fuchsia, linewidth=1)
 plot(series=PLOT_SIGNAL_PARAMS ? this_sec_low52 : na, title="52WK-Low", color=optimum(this_sec_sigct) ? color.white : color.purple, linewidth=1)
 plot(series=PLOT_SIGNAL_PARAMS ? this_sec_hi52 * HI_52_WEEK_RANGE : na, title="52WK-Range-High", color=optimum(this_sec_sigct) ? color.white : color.green, linewidth=1, style=plot.style_cross)
 plot(series=PLOT_SIGNAL_PARAMS ? this_sec_low52 * LO_52_WEEK_RANGE : na, title="52WK-Range-Low", color=optimum(this_sec_sigct) ? color.white : color.red, linewidth=1, style=plot.style_cross)
 
 [bb_low, bb_cent, bb_high] = ta.bb(this_sec_close, BOLLINGER_BAND_LEN, 3) 
-plot(series=PLOT_SIGNAL_PARAMS ? bb_low : na, title="Bol-Bands", color=ta.falling(this_sec_bbwavg*1000,CONTRACTION_BAR_COUNT) ? color.green : color.orange, linewidth=2, style=plot.style_cross)
-plot(series=PLOT_SIGNAL_PARAMS ? bb_high : na, title="Bol-Bands", color=ta.falling(this_sec_bbwavg*1000,CONTRACTION_BAR_COUNT) ? color.green : color.orange, linewidth=2, style=plot.style_cross)
+plot(series=PLOT_SIGNAL_PARAMS ? bb_low : na, title="Bol-Bands", color=ta.falling(this_sec_bbwavg*1000,CONTRACTION_BAR_COUNT) ? color.green : color.orange, linewidth=1, style=plot.style_cross)
+plot(series=PLOT_SIGNAL_PARAMS ? bb_high : na, title="Bol-Bands", color=ta.falling(this_sec_bbwavg*1000,CONTRACTION_BAR_COUNT) ? color.green : color.orange, linewidth=1, style=plot.style_cross)
 //plot(series=PLOT_SIGNAL_PARAMS ? this_sec_bbwavg*100 : na, title="Bol-Bands-Avg", color=ta.falling(this_sec_bbwavg*1000,CONTRACTION_BAR_COUNT) ? color.green : color.maroon, linewidth=2, style=plot.style_cross)
 
 //
@@ -263,25 +264,25 @@ plot(series=PLOT_SP500 ? sp500ema : na, title="sp500_ema", color=color_from_sigs
 ///////////////////////////////////////
 
 
-var float[] ESSTACK = array.new_float(size = 0)
-[ ESema, ESsigct ] = run_screener_simple("NYSE:ES", orderstack=ESSTACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
-plot(series=PLOT_SCREENERS ? ESema : na, title="ES_ema", color=color_from_sigs(ESsigct), linewidth=4)
+//var float[] ESSTACK = array.new_float(size = 0)
+//[ ESema, ESsigct ] = run_screener_simple("NYSE:ES", orderstack=ESSTACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
+//plot(series=PLOT_SCREENERS ? ESema : na, title="ES_ema", color=color_from_sigs(ESsigct), linewidth=4)
 
 var float[] SMHSTACK = array.new_float(size = 0)
 [ SMHema, SMHsigct ] = run_screener_simple("NASDAQ:SMH", orderstack=SMHSTACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
 plot(series=PLOT_SCREENERS ? SMHema : na, title="SMH_ema", color=color_from_sigs(SMHsigct), linewidth=4)
 
-var float[] DECKSTACK = array.new_float(size = 0)
-[ DECKema, DECKsigct ] = run_screener_simple("NYSE:DECK", orderstack=DECKSTACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
-plot(series=PLOT_SCREENERS ? DECKema : na, title="DECK_ema", color=color_from_sigs(DECKsigct), linewidth=4)
+//var float[] DECKSTACK = array.new_float(size = 0)
+//[ DECKema, DECKsigct ] = run_screener_simple("NYSE:DECK", orderstack=DECKSTACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
+//plot(series=PLOT_SCREENERS ? DECKema : na, title="DECK_ema", color=color_from_sigs(DECKsigct), linewidth=4)
 
 var float[] LNTHSTACK = array.new_float(size = 0)
 [ LNTHema, LNTHsigct ] = run_screener_simple("NASDAQ:LNTH", orderstack=LNTHSTACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
 plot(series=PLOT_SCREENERS ? LNTHema : na, title="LNTH_ema", color=color_from_sigs(LNTHsigct), linewidth=4)
 
-var float[] FNDSTACK = array.new_float(size = 0)
-[ FNDema, FNDsigct ] = run_screener_simple("NYSE:FND", orderstack=FNDSTACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
-plot(series=PLOT_SCREENERS ? FNDema : na, title="FND_ema", color=color_from_sigs(FNDsigct), linewidth=4)
+//var float[] FNDSTACK = array.new_float(size = 0)
+//[ FNDema, FNDsigct ] = run_screener_simple("NYSE:FND", orderstack=FNDSTACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
+//plot(series=PLOT_SCREENERS ? FNDema : na, title="FND_ema", color=color_from_sigs(FNDsigct), linewidth=4)
 
 var float[] CDNSSTACK = array.new_float(size = 0)
 [ CDNSema, CDNSsigct ] = run_screener_simple("NASDAQ:CDNS", orderstack=CDNSSTACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
@@ -299,14 +300,26 @@ var float[] CNCSTACK = array.new_float(size = 0)
 [ CNCema, CNCsigct ] = run_screener_simple("NYSE:CNC", orderstack=CNCSTACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
 plot(series=PLOT_SCREENERS ? CNCema : na, title="CNC_ema", color=color_from_sigs(CNCsigct), linewidth=4)
 
-var float[] HUMSTACK = array.new_float(size = 0)
-[ HUMema, HUMsigct ] = run_screener_simple("NYSE:HUM", orderstack=HUMSTACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
-plot(series=PLOT_SCREENERS ? HUMema : na, title="HUM_ema", color=color_from_sigs(HUMsigct), linewidth=4)
+//var float[] DASHSTACK = array.new_float(size = 0)
+//[ DASHema, DASHsigct ] = run_screener_simple("NYSE:DASH", orderstack=DASHSTACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
+//plot(series=PLOT_SCREENERS ? DASHema : na, title="DASH_ema", color=color_from_sigs(DASHsigct), linewidth=4)
 
-var float[] NFLXSTACK = array.new_float(size = 0)
-[ NFLXema, NFLXsigct ] = run_screener_simple("NASDAQ:NFLX", orderstack=NFLXSTACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
-plot(series=PLOT_SCREENERS ? NFLXema : na, title="NFLX_ema", color=color_from_sigs(NFLXsigct), linewidth=4)
+//var float[] NFLXSTACK = array.new_float(size = 0)
+//[ NFLXema, NFLXsigct ] = run_screener_simple("NASDAQ:NFLX", orderstack=NFLXSTACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
+//plot(series=PLOT_SCREENERS ? NFLXema : na, title="NFLX_ema", color=color_from_sigs(NFLXsigct), linewidth=4)
 
 var float[] WWESTACK = array.new_float(size = 0)
 [ WWEema, WWEsigct ] = run_screener_simple("NYSE:WWE", orderstack=WWESTACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
 plot(series=PLOT_SCREENERS ? WWEema : na, title="WWE_ema", color=color_from_sigs(WWEsigct), linewidth=4)
+
+//var float[] BEAMSTACK = array.new_float(size = 0)
+//[ BEAMema, BEAMsigct ] = run_screener_simple("NASDAQ:BEAM", orderstack=BEAMSTACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
+//plot(series=PLOT_SCREENERS ? BEAMema : na, title="BEAM_ema", color=color_from_sigs(BEAMsigct), linewidth=4)
+
+var float[] POWWSTACK = array.new_float(size = 0)
+[ POWWema, POWWsigct ] = run_screener_simple("NASDAQ:POWW", orderstack=POWWSTACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
+plot(series=PLOT_SCREENERS ? POWWema : na, title="POWW_ema", color=color_from_sigs(POWWsigct), linewidth=4)
+
+var float[] AVEOSTACK = array.new_float(size = 0)
+[ AVEOema, AVEOsigct ] = run_screener_simple("NASDAQ:AVEO", orderstack=AVEOSTACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
+plot(series=PLOT_SCREENERS ? AVEOema : na, title="AVEO_ema", color=color_from_sigs(AVEOsigct), linewidth=4)
