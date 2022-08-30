@@ -12,30 +12,28 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
 // © mlcs05
 
-// CONTRIBUTORS
-// @QuantNomad - logging portion
-
 //@version=5
 strategy(title="minervini", overlay=true, currency=currency.USD, initial_capital=10000, calc_on_every_tick=true, calc_on_order_fills=true)
 
 //
 // TIMEFRAME
-START                   = timestamp(2000, 01, 01, 01, 01)
+START                   = timestamp(1995, 01, 01, 01, 01)
 FINISH                  = timestamp(3000, 01, 01, 01, 01)
 
 //
 // INPUTS
 RUN_STRATEGY            = input.bool(defval=true, title="ENTRY - Run Strategy?")
 ENTRY_QUANTITY          = input.int(defval=1, title="ENTRY - Quantity", minval=1, maxval=99999, step=1)
-ENTRY_STOP_PERCENT      = input.float(defval=0.90, title="ENTRY - Stop Loss %", minval=0.1, maxval=1.0, step=0.01)
-ENTRY_PROFIT_PERCENT    = input.float(defval=1.20, title="ENTRY - Take Profit %", minval=1.0, maxval=2.0, step=0.01)
+ENTRY_STOP_PERCENT      = input.float(defval=0.05, title="ENTRY - Stop Loss %", minval=0.01, maxval=1.0, step=0.01)
+ENTRY_PROFIT_PERCENT    = input.float(defval=0.1, title="ENTRY - Take Profit %", minval=0.01, maxval=1.0, step=0.01)
 
-HI_52_WEEK_RANGE        = input.float(defval=0.75, title="SIGNALS - % below 52 week high", minval=0.1, maxval=1.0, step=0.01)
-LO_52_WEEK_RANGE        = input.float(defval=1.25, title="SIGNALS - % above 52 week low", minval=1.0, maxval=2.0, step=0.01)
-CONTRACTION_BAR_COUNT   = input.int(defval=50, title="SIGNALS - Contraction Bar Count", minval=5, maxval=200, step=1)
-BOLLINGER_BAND_LEN      = input.int(defval=30, title="SIGNALS - Bollinger Band Length", minval=10, maxval=180, step=1)
+HI_52_WEEK_RANGE        = input.float(defval=0.25, title="SIGNALS - % below 52 week high", minval=0.05, maxval=0.5, step=0.01)
+LO_52_WEEK_RANGE        = input.float(defval=0.25, title="SIGNALS - % above 52 week low", minval=0.05, maxval=0.5, step=0.01)
+CONTRACTION_BAR_COUNT   = input.int(defval=40, title="SIGNALS - Contraction Bar Count", minval=5, maxval=200, step=1)
+BOLLINGER_BAND_LEN      = input.int(defval=40, title="SIGNALS - Bollinger Band Length", minval=10, maxval=180, step=1)
 
 PLOT_SIGNAL_PARAMS      = input.bool(defval=false, title="PLOT - Plot Signal Params?")
+PLOT_VIX                = input.bool(defval=false, title="PLOT - Plot S&P VOLATILITY?")
 PLOT_SP500              = input.bool(defval=false, title="PLOT - Plot S&P500?")
 PLOT_SCREENERS          = input.bool(defval=false, title="PLOT - Plot Screeners?")
 
@@ -57,7 +55,9 @@ sig_ma_uptrend(ma50, ma150, ma200) =>
     ((ma50 > ma150) and (ma150 > ma200))
 
 sig_price_in_52wk_range(hi52week, hi52multiplier, low52week, low52multiplier, opn, cls) => 
-    ((opn > (low52week * low52multiplier)) and (cls > (low52week * low52multiplier)) and (opn > (hi52week * hi52multiplier)) and (cls > (hi52week * hi52multiplier)))
+    hi52diff = hi52week - ((hi52week - low52week) * hi52multiplier)
+    low52diff = low52week + ((hi52week - low52week) * low52multiplier)    
+    ((opn > low52diff) and (cls > low52diff) and (opn > hi52diff) and (cls > hi52diff))
 
 sig_ma200_uptrend_30days(ma200) => 
     ((ta.change(ma200, 30) > 0.0) and (ta.change(ma200, 15) > 0.0))
@@ -156,13 +156,15 @@ check_plot(price_action)=>
     else 
         na
 
-buy_signal(sigct)=>
-    optimum(sigct)
+buy_signal(sigct, sigct_prev)=>
+    (double_signal(sigct) and single_signal(sigct_prev) and not double_signal(sigct_prev))
+    // (optimum(sigct) and quad_signal(sigct_prev) and not optimum(sigct_prev))
+    //(quad_signal(sigct) and not quad_signal(sigct_prev))
 
-place_orders(ticker, qty, stop_percent, profit_percent, ticker_close, ticker_index, stack) => 
+place_orders(ticker, qty, stop_percent, profit_percent, ticker_close, ticker_index, stack)=> 
     ticker_name = get_name(ticker)
-    price_stop_loss = (ticker_close * stop_percent)
-    price_profit = (ticker_close * profit_percent)
+    price_stop_loss = (ticker_close * (1.0 - stop_percent))
+    price_profit = (ticker_close * (1.0 + profit_percent))
     if (array.size(stack) == 0)
         array.push(stack, price_profit)
         array.push(stack, price_stop_loss)
@@ -206,7 +208,7 @@ run_screener_for(ticker, timeframe, dateStart, dateEnd, qty, ticker_52h_mult, ti
     if (in_time_window(dateStart, dateEnd) and runstrategy)
         check_alerts(ticker, sigct)
         mark_ticker(ticker, sec_close, sigct)
-        if (buy_signal(sigct) and not buy_signal(sigct_prev))
+        if (buy_signal(sigct, sigct_prev))
             place_orders(ticker, qty, stop_percent, profit_percent, sec_close, bar_index, stack)
         else
             check_orders(stack, ticker, sec_close, sec_low, sec_high, bar_index)
@@ -233,8 +235,8 @@ plot(series=PLOT_SIGNAL_PARAMS ? this_sec_ma150 : na, title="MA150", color=optim
 plot(series=PLOT_SIGNAL_PARAMS ? this_sec_ma200 : na, title="MA200", color=optimum(this_sec_sigct) ? color.white : color.olive, linewidth=2)
 plot(series=PLOT_SIGNAL_PARAMS ? this_sec_hi52 : na, title="52WK-High", color=optimum(this_sec_sigct) ? color.white : color.fuchsia, linewidth=1)
 plot(series=PLOT_SIGNAL_PARAMS ? this_sec_low52 : na, title="52WK-Low", color=optimum(this_sec_sigct) ? color.white : color.purple, linewidth=1)
-plot(series=PLOT_SIGNAL_PARAMS ? this_sec_hi52 * HI_52_WEEK_RANGE : na, title="52WK-Range-High", color=optimum(this_sec_sigct) ? color.white : color.green, linewidth=1, style=plot.style_cross)
-plot(series=PLOT_SIGNAL_PARAMS ? this_sec_low52 * LO_52_WEEK_RANGE : na, title="52WK-Range-Low", color=optimum(this_sec_sigct) ? color.white : color.red, linewidth=1, style=plot.style_cross)
+plot(series=PLOT_SIGNAL_PARAMS ? this_sec_hi52 - ((this_sec_hi52 - this_sec_low52) * HI_52_WEEK_RANGE) : na, title="52WK-Range-High", color=optimum(this_sec_sigct) ? color.white : color.green, linewidth=1, style=plot.style_cross)
+plot(series=PLOT_SIGNAL_PARAMS ? this_sec_low52 + ((this_sec_hi52 - this_sec_low52) * LO_52_WEEK_RANGE) : na, title="52WK-Range-Low", color=optimum(this_sec_sigct) ? color.white : color.red, linewidth=1, style=plot.style_cross)
 
 [bb_low, bb_cent, bb_high] = ta.bb(this_sec_close, BOLLINGER_BAND_LEN, 3) 
 plot(series=PLOT_SIGNAL_PARAMS ? bb_low : na, title="Bol-Bands", color=ta.falling(this_sec_bbwavg*1000,CONTRACTION_BAR_COUNT) ? color.green : color.orange, linewidth=1, style=plot.style_cross)
@@ -243,11 +245,13 @@ plot(series=PLOT_SIGNAL_PARAMS ? bb_high : na, title="Bol-Bands", color=ta.falli
 
 //
 // PLOT: Take Profit and Stop Loss price targets
-plot(series=(PLOT_SIGNAL_PARAMS and barstate.islast) ? this_sec_close * ENTRY_PROFIT_PERCENT : na, title="take-profit", color=color.lime, linewidth=3, style=plot.style_line)
-plot(series=(PLOT_SIGNAL_PARAMS and barstate.islast) ? this_sec_close * ENTRY_STOP_PERCENT : na, title="stop-loss", color=color.red, linewidth=3, style=plot.style_line)
+// plot(series=(PLOT_SIGNAL_PARAMS and barstate.islast) ? this_sec_close * ENTRY_PROFIT_PERCENT : na, title="take-profit", color=color.lime, linewidth=3, style=plot.style_line)
+//plot(series=(PLOT_SIGNAL_PARAMS and barstate.islast) ? this_sec_close * ENTRY_STOP_PERCENT : na, title="stop-loss", color=color.red, linewidth=3, style=plot.style_line)
 if (barstate.islast and PLOT_SIGNAL_PARAMS)
-    label.new(x=bar_index,y=this_sec_close * ENTRY_PROFIT_PERCENT,yloc=yloc.price,text=str.tostring(this_sec_close * ENTRY_PROFIT_PERCENT),color=color.lime,style=label.style_label_left,textcolor=color.black,size=size.small)
-    label.new(x=bar_index,y=this_sec_close * ENTRY_STOP_PERCENT,yloc=yloc.price,text=str.tostring(this_sec_close * ENTRY_STOP_PERCENT),color=color.red,style=label.style_label_left,textcolor=color.black,size=size.small)
+    profit_mark = this_sec_close * (1.0 + ENTRY_PROFIT_PERCENT)
+    stop_mark = this_sec_close * (1.0 - ENTRY_STOP_PERCENT)
+    label.new(x=bar_index,y=profit_mark,yloc=yloc.price,text=str.tostring(profit_mark),color=color.lime,style=label.style_label_left,textcolor=color.black,size=size.small)
+    label.new(x=bar_index,y=stop_mark,yloc=yloc.price,text=str.tostring(stop_mark),color=color.red,style=label.style_label_left,textcolor=color.black,size=size.small)
 
 ///////////////////////////////////////
 // SP500
@@ -259,6 +263,16 @@ var float[] SP500STACK = array.new_float(size = 0)
 plot(series=PLOT_SP500 ? sp500ema : na, title="sp500_ema", color=color_from_sigs(sp500sigct), linewidth=4)
 
 ///////////////////////////////////////
+// SP500 - Volatility
+// comparison plot
+///////////////////////////////////////
+
+var float[] VIXSTACK = array.new_float(size = 0)
+[ vixema, vixsigct ] = run_screener_simple("TVC:VIX", orderstack=VIXSTACK, runstrategy=(PLOT_VIX and RUN_STRATEGY))
+plot(series=PLOT_VIX ? (vixema * 1) : na, title="VIX_ema", color=color.maroon, linewidth=3)
+
+
+///////////////////////////////////////
 // ADDTL SCREENERS
 // comparison plots
 ///////////////////////////////////////
@@ -268,58 +282,10 @@ plot(series=PLOT_SP500 ? sp500ema : na, title="sp500_ema", color=color_from_sigs
 //[ ESema, ESsigct ] = run_screener_simple("NYSE:ES", orderstack=ESSTACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
 //plot(series=PLOT_SCREENERS ? ESema : na, title="ES_ema", color=color_from_sigs(ESsigct), linewidth=4)
 
-var float[] SMHSTACK = array.new_float(size = 0)
-[ SMHema, SMHsigct ] = run_screener_simple("NASDAQ:SMH", orderstack=SMHSTACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
-plot(series=PLOT_SCREENERS ? SMHema : na, title="SMH_ema", color=color_from_sigs(SMHsigct), linewidth=4)
+//var float[] SMHSTACK = array.new_float(size = 0)
+//[ SMHema, SMHsigct ] = run_screener_simple("NASDAQ:SMH", orderstack=SMHSTACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
+//plot(series=PLOT_SCREENERS ? SMHema : na, title="SMH_ema", color=color_from_sigs(SMHsigct), linewidth=4)
 
 //var float[] DECKSTACK = array.new_float(size = 0)
 //[ DECKema, DECKsigct ] = run_screener_simple("NYSE:DECK", orderstack=DECKSTACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
 //plot(series=PLOT_SCREENERS ? DECKema : na, title="DECK_ema", color=color_from_sigs(DECKsigct), linewidth=4)
-
-var float[] LNTHSTACK = array.new_float(size = 0)
-[ LNTHema, LNTHsigct ] = run_screener_simple("NASDAQ:LNTH", orderstack=LNTHSTACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
-plot(series=PLOT_SCREENERS ? LNTHema : na, title="LNTH_ema", color=color_from_sigs(LNTHsigct), linewidth=4)
-
-//var float[] FNDSTACK = array.new_float(size = 0)
-//[ FNDema, FNDsigct ] = run_screener_simple("NYSE:FND", orderstack=FNDSTACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
-//plot(series=PLOT_SCREENERS ? FNDema : na, title="FND_ema", color=color_from_sigs(FNDsigct), linewidth=4)
-
-var float[] CDNSSTACK = array.new_float(size = 0)
-[ CDNSema, CDNSsigct ] = run_screener_simple("NASDAQ:CDNS", orderstack=CDNSSTACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
-plot(series=PLOT_SCREENERS ? CDNSema : na, title="CDNS_ema", color=color_from_sigs(CDNSsigct), linewidth=4)
-
-var float[] SNPSSTACK = array.new_float(size = 0)
-[ SNPSema, SNPSsigct ] = run_screener_simple("NASDAQ:SNPS", orderstack=SNPSSTACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
-plot(series=PLOT_SCREENERS ? SNPSema : na, title="SNPS_ema", color=color_from_sigs(SNPSsigct), linewidth=4)
-
-var float[] UNHSTACK = array.new_float(size = 0)
-[ UNHema, UNHsigct ] = run_screener_simple("NYSE:UNH", orderstack=UNHSTACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
-plot(series=PLOT_SCREENERS ? UNHema : na, title="UNH_ema", color=color_from_sigs(UNHsigct), linewidth=4)
-
-var float[] CNCSTACK = array.new_float(size = 0)
-[ CNCema, CNCsigct ] = run_screener_simple("NYSE:CNC", orderstack=CNCSTACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
-plot(series=PLOT_SCREENERS ? CNCema : na, title="CNC_ema", color=color_from_sigs(CNCsigct), linewidth=4)
-
-//var float[] DASHSTACK = array.new_float(size = 0)
-//[ DASHema, DASHsigct ] = run_screener_simple("NYSE:DASH", orderstack=DASHSTACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
-//plot(series=PLOT_SCREENERS ? DASHema : na, title="DASH_ema", color=color_from_sigs(DASHsigct), linewidth=4)
-
-//var float[] NFLXSTACK = array.new_float(size = 0)
-//[ NFLXema, NFLXsigct ] = run_screener_simple("NASDAQ:NFLX", orderstack=NFLXSTACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
-//plot(series=PLOT_SCREENERS ? NFLXema : na, title="NFLX_ema", color=color_from_sigs(NFLXsigct), linewidth=4)
-
-var float[] WWESTACK = array.new_float(size = 0)
-[ WWEema, WWEsigct ] = run_screener_simple("NYSE:WWE", orderstack=WWESTACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
-plot(series=PLOT_SCREENERS ? WWEema : na, title="WWE_ema", color=color_from_sigs(WWEsigct), linewidth=4)
-
-//var float[] BEAMSTACK = array.new_float(size = 0)
-//[ BEAMema, BEAMsigct ] = run_screener_simple("NASDAQ:BEAM", orderstack=BEAMSTACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
-//plot(series=PLOT_SCREENERS ? BEAMema : na, title="BEAM_ema", color=color_from_sigs(BEAMsigct), linewidth=4)
-
-var float[] POWWSTACK = array.new_float(size = 0)
-[ POWWema, POWWsigct ] = run_screener_simple("NASDAQ:POWW", orderstack=POWWSTACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
-plot(series=PLOT_SCREENERS ? POWWema : na, title="POWW_ema", color=color_from_sigs(POWWsigct), linewidth=4)
-
-var float[] AVEOSTACK = array.new_float(size = 0)
-[ AVEOema, AVEOsigct ] = run_screener_simple("NASDAQ:AVEO", orderstack=AVEOSTACK, runstrategy=(RUN_STRATEGY and PLOT_SCREENERS))
-plot(series=PLOT_SCREENERS ? AVEOema : na, title="AVEO_ema", color=color_from_sigs(AVEOsigct), linewidth=4)
