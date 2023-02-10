@@ -18,24 +18,29 @@ strategy(title="minervini", overlay=true, currency=currency.USD, initial_capital
 //
 // TIMEFRAME
 START                   = timestamp(1995, 01, 01, 01, 01)
-FINISH                  = timestamp(3000, 01, 01, 01, 01)
+FINISH                  = timestamp(3000, 11, 01, 01, 01)
 
 //
 // INPUTS
 RUN_STRATEGY            = input.bool(defval=true, title="ENTRY - Run Strategy?")
+
 ENTRY_QUANTITY          = input.int(defval=1, title="ENTRY - Quantity", minval=1, maxval=99999, step=1)
-ENTRY_STOP_PERCENT      = input.float(defval=0.05, title="ENTRY - Stop Loss %", minval=0.01, maxval=1.0, step=0.01)
-ENTRY_PROFIT_PERCENT    = input.float(defval=0.1, title="ENTRY - Take Profit %", minval=0.01, maxval=1.0, step=0.01)
+ENTRY_STOP_PERCENT      = input.float(defval=0.05, title="ENTRY - Stop Loss %", minval=0.001, maxval=1.0, step=0.01)
+ENTRY_PROFIT_PERCENT    = input.float(defval=0.1, title="ENTRY - Take Profit %", minval=0.001, maxval=1.0, step=0.01)
+ENTRY_PROFIT_STEPS      = input.int(defval=1, title="ENTRY - Take Profit Steps", minval=1, maxval=15, step=1)
+ENTRY_SIGNAL_COUNT      = input.float(defval=5, title="ENTRY - Signal Count", minval=1, maxval=5, step=1)
 
 HI_52_WEEK_RANGE        = input.float(defval=0.25, title="SIGNALS - % below 52 week high", minval=0.05, maxval=0.5, step=0.01)
 LO_52_WEEK_RANGE        = input.float(defval=0.25, title="SIGNALS - % above 52 week low", minval=0.05, maxval=0.5, step=0.01)
 CONTRACTION_BAR_COUNT   = input.int(defval=40, title="SIGNALS - Contraction Bar Count", minval=5, maxval=200, step=1)
 BOLLINGER_BAND_LEN      = input.int(defval=40, title="SIGNALS - Bollinger Band Length", minval=10, maxval=180, step=1)
+SUPERTREND_LEN          = input.int(defval=10, title="SIGNALS - SuperTrend Length", minval=10, maxval=200, step=1)
 
 PLOT_SIGNAL_PARAMS      = input.bool(defval=false, title="PLOT - Plot Signal Params?")
 PLOT_VIX                = input.bool(defval=false, title="PLOT - Plot S&P VOLATILITY?")
 PLOT_SP500              = input.bool(defval=false, title="PLOT - Plot S&P500?")
 PLOT_SCREENERS          = input.bool(defval=false, title="PLOT - Plot Screeners?")
+PLOT_SUPERTREND         = input.bool(defval=false, title="PLOT - Plot SuperTrend?")
 
 
 //
@@ -117,14 +122,6 @@ color_from_sigs(sigct)=>
 in_time_window(start, finish) =>
     (time >= start and time <= finish)
 
-check_alerts(ticker, sigct) =>
-    if (optimum(sigct))
-        alert(message = "OPTIMUM: " + str.tostring(ticker), freq = alert.freq_once_per_bar_close)
-    else if (quad_signal(sigct))
-        alert(message = "Excellent: " + str.tostring(ticker), freq = alert.freq_once_per_bar_close)
-    else if (triple_signal(sigct))
-        alert(message = "Good: " + str.tostring(ticker), freq = alert.freq_once_per_bar_close)
-
 screener_function(bblen=20) =>
     [ta.ema(close, 3), ta.sma(close, 50), ta.sma(close, 150), ta.sma(close, 200), ta.highest(high, 251), ta.lowest(low, 251), ta.ema(ta.bbw(close, bblen, 3), bblen), open, close, low, high, bar_index]
 
@@ -141,6 +138,9 @@ mark_order(order_type, ticker, ticker_close, ticker_index, price = 0.0)=>
             if (order_type == "profit")
                 ptext = "$" + suffix
                 label.new(x=ticker_index,y=ticker_close,yloc=yloc.price,text=ptext,color=color.green,style=label.style_label_up,textcolor=color.white,size=size.small)
+            else
+                ptext = order_type
+                label.new(x=ticker_index,y=ticker_close,yloc=yloc.price,text=ptext,color=color.white,style=label.style_label_up,textcolor=color.black,size=size.small)
     true
 
 mark_ticker(tname,tclose,sigct)=>
@@ -156,15 +156,18 @@ check_plot(price_action)=>
     else 
         na
 
-buy_signal(sigct, sigct_prev)=>
-    (double_signal(sigct) and single_signal(sigct_prev) and not double_signal(sigct_prev))
+buy_signal(sigct, sigct_prev, min_buy_sigct)=>
+    ((min_buy_sigct == sigct) and (min_buy_sigct != sigct_prev) and (sigct_prev+1 == sigct))
+    // (double_signal(sigct) and single_signal(sigct_prev) and not double_signal(sigct_prev))
     // (optimum(sigct) and quad_signal(sigct_prev) and not optimum(sigct_prev))
-    //(quad_signal(sigct) and not quad_signal(sigct_prev))
+    // (quad_signal(sigct) and not quad_signal(sigct_prev))
 
-place_orders(ticker, qty, stop_percent, profit_percent, ticker_close, ticker_index, stack)=> 
+place_orders(ticker, qty, stop_percent, profit_percent, profit_steps, ticker_close, ticker_index, stack)=> 
     ticker_name = get_name(ticker)
     price_stop_loss = (ticker_close * (1.0 - stop_percent))
     price_profit = (ticker_close * (1.0 + profit_percent))
+    price_step = ((price_profit - ticker_close) / profit_steps)
+    step_quantity = math.round(qty / profit_steps)
     if (array.size(stack) == 0)
         array.push(stack, price_profit)
         array.push(stack, price_stop_loss)
@@ -175,7 +178,14 @@ place_orders(ticker, qty, stop_percent, profit_percent, ticker_close, ticker_ind
         profit_id = "profit-" + ticker_name
         loss_id = "loss-" + ticker_name
         strategy.entry(buy_id, strategy.long, qty=qty, alert_message=buy_id)
-        strategy.exit(sell_id, from_entry=buy_id, stop=price_stop_loss, limit=price_profit,alert_profit=profit_id,alert_loss=loss_id)
+        //strategy.exit(sell_id, from_entry=buy_id, stop=price_stop_loss, limit=price_profit, alert_profit=profit_id, alert_loss=loss_id)
+        for i = 1 to profit_steps
+            if i == profit_steps
+                step_quantity := na
+            next_take_profit_price = (ticker_close + (i * price_step))
+            strategy.exit(sell_id + str.tostring(i), from_entry=buy_id, qty=step_quantity, stop=price_stop_loss, limit=next_take_profit_price, alert_profit=profit_id + str.tostring(i))
+            mark_order("step_profit " + str.tostring(next_take_profit_price) + " " + str.tostring(price_step) + " " + str.tostring(step_quantity), ticker_name, next_take_profit_price, ticker_index, next_take_profit_price)
+
 
 check_orders(stack, ticker, ticker_close, ticker_low, ticker_high, ticker_index)=>
     if (array.size(stack) == 2)
@@ -191,31 +201,33 @@ check_orders(stack, ticker, ticker_close, ticker_low, ticker_high, ticker_index)
                 array.pop(stack)
                 array.pop(stack)
                 mark_order("stop", ticker_name, ticker_close, ticker_index, price_stop_loss)
+                alert(message = "event:stop_loss, ticker:" + str.tostring(ticker) + ", price:" + str.tostring(price_stop_loss), freq = alert.freq_once_per_bar)
             else
                 if (profit_triggered)
                     array.pop(stack)
                     array.pop(stack)
                     mark_order("profit", ticker_name, ticker_close, ticker_index, price_profit)
+                    alert(message = "event:profit, ticker:" + str.tostring(ticker) + ", price:" + str.tostring(price_profit), freq = alert.freq_once_per_bar)
         true
     false
         
-run_screener_for(ticker, timeframe, dateStart, dateEnd, qty, ticker_52h_mult, ticker_52l_mult, ticker_bbbars, stop_percent, profit_percent, stack, runstrategy = true, ticker_bblen) => 
+run_screener_for(ticker, timeframe, dateStart, dateEnd, qty, ticker_52h_mult, ticker_52l_mult, ticker_bbbars, stop_percent, profit_percent, profit_steps, stack, runstrategy = true, ticker_bblen, min_buy_sigct) => 
     [ emaPrice, sec_ma50, sec_ma150, sec_ma200, sec_hi52, sec_low52, sec_bbwavg, sec_open, sec_close, sec_low, sec_high, sec_bar_index ] = request.security(ticker, timeframe, screener_function(bblen=ticker_bblen))
     [sig1, sig2, sig3, sig4, sig5] = signals(sec_ma50, sec_ma150, sec_ma200, sec_hi52, ticker_52h_mult, sec_low52, ticker_52l_mult, sec_bbwavg, ticker_bbbars, sec_open, sec_close)
     [sig1_prev, sig2_prev, sig3_prev, sig4_prev, sig5_prev] = signals(sec_ma50[1], sec_ma150[1], sec_ma200[1], sec_hi52[1], ticker_52h_mult, sec_low52[1], ticker_52l_mult, sec_bbwavg[1], ticker_bbbars, sec_open[1], sec_close[1])
     sigct = signal_count(sig1, sig2, sig3, sig4, sig5)
     sigct_prev = signal_count(sig1_prev, sig2_prev, sig3_prev, sig4_prev, sig5_prev)
     if (in_time_window(dateStart, dateEnd) and runstrategy)
-        check_alerts(ticker, sigct)
         mark_ticker(ticker, sec_close, sigct)
-        if (buy_signal(sigct, sigct_prev))
-            place_orders(ticker, qty, stop_percent, profit_percent, sec_close, bar_index, stack)
+        if (buy_signal(sigct, sigct_prev, min_buy_sigct))
+            place_orders(ticker, qty, stop_percent, profit_percent, profit_steps, sec_close, bar_index, stack)
+            // alert(message = "event:buy, ticker:" + str.tostring(ticker) + ", price:" + str.tostring(close), freq = alert.freq_once_per_bar)
         else
             check_orders(stack, ticker, sec_close, sec_low, sec_high, bar_index)
     [ emaPrice, sec_ma50, sec_ma150, sec_ma200, sec_hi52, sec_low52, sec_bbwavg, sec_close, sigct ]
 
 run_screener_default(ticker=syminfo.tickerid, orderstack, runstrategy=true)=>
-    run_screener_for(ticker, timeframe.period, dateStart=START, dateEnd=FINISH, qty=ENTRY_QUANTITY, ticker_52h_mult=HI_52_WEEK_RANGE, ticker_52l_mult=LO_52_WEEK_RANGE, ticker_bbbars=CONTRACTION_BAR_COUNT, stop_percent=ENTRY_STOP_PERCENT, profit_percent=ENTRY_PROFIT_PERCENT, stack=orderstack, runstrategy=runstrategy, ticker_bblen=BOLLINGER_BAND_LEN)
+    run_screener_for(ticker, timeframe.period, dateStart=START, dateEnd=FINISH, qty=ENTRY_QUANTITY, ticker_52h_mult=HI_52_WEEK_RANGE, ticker_52l_mult=LO_52_WEEK_RANGE, ticker_bbbars=CONTRACTION_BAR_COUNT, stop_percent=ENTRY_STOP_PERCENT, profit_percent=ENTRY_PROFIT_PERCENT, profit_steps = ENTRY_PROFIT_STEPS, stack=orderstack, runstrategy=runstrategy, ticker_bblen=BOLLINGER_BAND_LEN, min_buy_sigct=ENTRY_SIGNAL_COUNT)
 
 run_screener_simple(ticker=syminfo.tickerid, orderstack, runstrategy=true)=>
     [ ema, ma50, ma150, ma200, hi52, low52, bbwavg, tclose, sigct ] = run_screener_default(ticker, orderstack, runstrategy)
@@ -233,8 +245,8 @@ plot(series=this_sec_ema, title="ema", color=color_from_sigs(this_sec_sigct), li
 plot(series=PLOT_SIGNAL_PARAMS ? this_sec_ma50 : na, title="MA50", color=optimum(this_sec_sigct) ? color.white : color.lime, linewidth=2)
 plot(series=PLOT_SIGNAL_PARAMS ? this_sec_ma150 : na, title="MA150", color=optimum(this_sec_sigct) ? color.white : color.green, linewidth=1)
 plot(series=PLOT_SIGNAL_PARAMS ? this_sec_ma200 : na, title="MA200", color=optimum(this_sec_sigct) ? color.white : color.olive, linewidth=2)
-plot(series=PLOT_SIGNAL_PARAMS ? this_sec_hi52 : na, title="52WK-High", color=optimum(this_sec_sigct) ? color.white : color.fuchsia, linewidth=1)
-plot(series=PLOT_SIGNAL_PARAMS ? this_sec_low52 : na, title="52WK-Low", color=optimum(this_sec_sigct) ? color.white : color.purple, linewidth=1)
+plot_52wk_high=plot(series=PLOT_SIGNAL_PARAMS ? this_sec_hi52 : na, title="52WK-High", color=optimum(this_sec_sigct) ? color.white : color.fuchsia, linewidth=1)
+plot_52wk_low=plot(series=PLOT_SIGNAL_PARAMS ? this_sec_low52 : na, title="52WK-Low", color=optimum(this_sec_sigct) ? color.white : color.purple, linewidth=1)
 plot(series=PLOT_SIGNAL_PARAMS ? this_sec_hi52 - ((this_sec_hi52 - this_sec_low52) * HI_52_WEEK_RANGE) : na, title="52WK-Range-High", color=optimum(this_sec_sigct) ? color.white : color.green, linewidth=1, style=plot.style_cross)
 plot(series=PLOT_SIGNAL_PARAMS ? this_sec_low52 + ((this_sec_hi52 - this_sec_low52) * LO_52_WEEK_RANGE) : na, title="52WK-Range-Low", color=optimum(this_sec_sigct) ? color.white : color.red, linewidth=1, style=plot.style_cross)
 
@@ -252,6 +264,11 @@ if (barstate.islast and PLOT_SIGNAL_PARAMS)
     stop_mark = this_sec_close * (1.0 - ENTRY_STOP_PERCENT)
     label.new(x=bar_index,y=profit_mark,yloc=yloc.price,text=str.tostring(profit_mark),color=color.lime,style=label.style_label_left,textcolor=color.black,size=size.small)
     label.new(x=bar_index,y=stop_mark,yloc=yloc.price,text=str.tostring(stop_mark),color=color.red,style=label.style_label_left,textcolor=color.black,size=size.small)
+
+
+[supertrend, direction] = request.security(syminfo.tickerid, "1D", ta.supertrend(3, SUPERTREND_LEN))
+st_transparency = PLOT_SUPERTREND ? 80 : 100
+fill(plot_52wk_high, plot_52wk_low, color = direction < 0 ? color.new(color.green, st_transparency) : color.new(color.red, st_transparency))
 
 ///////////////////////////////////////
 // SP500
