@@ -53,6 +53,9 @@ err(msg) =>
 get_name(ticker) =>
     array.get(str.split(ticker, ":"), 1)
 
+get_tick_value() =>
+    syminfo.mintick * syminfo.pointvalue
+
 sig_price_above_ma(ma50, ma150, ma200, opn, cls) => 
     ((opn > ma50) and (cls > ma50) and (opn > ma150) and (opn > ma200) and (cls > ma200) and (cls > ma150))
 
@@ -183,9 +186,9 @@ place_orders(ticker, qty, stop_percent, profit_percent, profit_steps, ticker_clo
             if i == profit_steps
                 step_quantity := na
             next_take_profit_price = (ticker_close + (i * price_step))
-            strategy.exit(sell_id + str.tostring(i), from_entry=buy_id, qty=step_quantity, stop=price_stop_loss, limit=next_take_profit_price, alert_profit=profit_id + str.tostring(i))
+            next_trail_price = (next_take_profit_price - price_step)
+            strategy.exit(sell_id + str.tostring(i), from_entry=buy_id, qty=step_quantity, stop=price_stop_loss, limit=next_take_profit_price, trail_price=next_trail_price, trail_points=25, alert_profit=profit_id + str.tostring(i))
             mark_order("step_profit " + str.tostring(next_take_profit_price) + " " + str.tostring(price_step) + " " + str.tostring(step_quantity), ticker_name, next_take_profit_price, ticker_index, next_take_profit_price)
-
 
 check_orders(stack, ticker, ticker_close, ticker_low, ticker_high, ticker_index)=>
     if (array.size(stack) == 2)
@@ -221,7 +224,7 @@ run_screener_for(ticker, timeframe, dateStart, dateEnd, qty, ticker_52h_mult, ti
         mark_ticker(ticker, sec_close, sigct)
         if (buy_signal(sigct, sigct_prev, min_buy_sigct))
             place_orders(ticker, qty, stop_percent, profit_percent, profit_steps, sec_close, bar_index, stack)
-            // alert(message = "event:buy, ticker:" + str.tostring(ticker) + ", price:" + str.tostring(close), freq = alert.freq_once_per_bar)
+            alert(message = "event:buy, ticker:" + str.tostring(ticker) + ", price:" + str.tostring(close), freq = alert.freq_once_per_bar)
         else
             check_orders(stack, ticker, sec_close, sec_low, sec_high, bar_index)
     [ emaPrice, sec_ma50, sec_ma150, sec_ma200, sec_hi52, sec_low52, sec_bbwavg, sec_close, sigct ]
